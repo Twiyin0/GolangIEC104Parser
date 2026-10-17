@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>104ParserRealTime — 101/104 实时报文解析</title>
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/detail.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- 菜单栏：File / Edit / Setting -->
+  <header class="menubar">
+    <div class="brand">
+      <img class="logo-img" src="assets/logo.svg" alt="IEC 104 Logo">
+      <span>104ParserRealTime</span>
+    </div>
+    <div class="menus">
+      <div class="menu" :class="{open: openMenu==='file'}">
+        <button @click.stop="toggleMenu('file')">File ▾</button>
+        <div class="dropdown" @click.stop>
+          <div class="submenu"><span><span class="app-icon" data-icon="download"></span>Export →</span>
+            <div class="subitems">
+              <button @click="doExport('md'); closeMenus()"><span class="app-icon" data-icon="download"></span>markdown</button>
+              <button @click="doExport('txt'); closeMenus()"><span class="app-icon" data-icon="download"></span>text</button>
+              <button @click="doExport('log'); closeMenus()"><span class="app-icon" data-icon="download"></span>log</button>
+            </div>
+          </div>
+          <button @click="doImport(); closeMenus()"><span class="app-icon" data-icon="upload"></span>Import (md / text / log)</button>
+          <div class="sep"></div>
+          <button @click="saveConfig(); closeMenus()"><span class="app-icon" data-icon="file-check"></span>SaveConfig</button>
+          <button @click="loadConfig(); closeMenus()"><span class="app-icon" data-icon="folder"></span>LoadConfig</button>
+        </div>
+      </div>
+      <div class="menu" :class="{open: openMenu==='edit'}">
+        <button @click.stop="toggleMenu('edit')">Edit ▾</button>
+        <div class="dropdown" @click.stop>
+          <div class="submenu"><span><span class="app-icon" data-icon="sliders"></span>Mode →</span>
+            <div class="subitems">
+              <button :class="cfg.mode==='realtime' ? 'check' : 'uncheck'" @click="setMode('realtime'); closeMenus()"><span class="app-icon" data-icon="bolt"></span>RealTime Parser</button>
+              <button :class="cfg.mode==='static' ? 'check' : 'uncheck'" @click="setMode('static'); closeMenus()"><span class="app-icon" data-icon="code"></span>Static Parser</button>
+            </div>
+          </div>
+          <div class="sep"></div>
+          <button @click="dbSelect(); closeMenus()"><span class="app-icon" data-icon="table"></span>dbSelect(点表加载)</button>
+        </div>
+      </div>
+      <div class="menu" :class="{open: openMenu==='setting'}">
+        <button @click.stop="toggleMenu('setting')">Setting ▾</button>
+        <div class="dropdown" @click.stop>
+          <button @click="openConn()"><span class="app-icon" data-icon="sliders"></span>Connection…</button>
+          <div class="submenu"><span><span class="app-icon" data-icon="palette"></span>Theme →</span>
+            <div class="subitems">
+              <button :class="cfg.ui.theme==='dark' ? 'check' : 'uncheck'" @click="setTheme('dark'); closeMenus()"><span class="app-icon" data-icon="palette"></span>Dark</button>
+              <button :class="cfg.ui.theme==='light' ? 'check' : 'uncheck'" @click="setTheme('light'); closeMenus()"><span class="app-icon" data-icon="palette"></span>Light</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Search 属于工具栏（顶部行）-->
+      <button class="menu-btn" :class="{active: searchOpen}" @click.stop="searchOpen = !searchOpen"
+              :title="'搜索与筛选（Search by rules + Filter）' + (search.active || filterActiveC ? '｜筛选 ' + filterInfo + '，命中 ' + hitCount : '')">
+        <span class="app-icon" data-icon="search"></span>Search ▾<span v-if="search.active || filterActiveC" class="dot-ind warn"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 工具栏：开始/停止/暂停/继续 + 连接状态灯 + 主站端口 -->
+  <div class="toolbar">
+    <button class="btn primary" :disabled="running" @click="startListen"><span class="app-icon" data-icon="play"></span>开始监听</button>
+    <button class="btn danger" :disabled="!running" @click="stopListen"><span class="app-icon" data-icon="square"></span>停止监听</button>
+    <button class="btn" :disabled="!running || paused" @click="pauseListen"><span class="app-icon" data-icon="pause"></span>暂停</button>
+    <button class="btn" :disabled="!paused" @click="resumeListen"><span class="app-icon" data-icon="play"></span>继续</button>
+    <button class="btn" @click="clearList"><span class="app-icon" data-icon="trash"></span>清空</button>
+    <button class="btn" v-if="view==='import'" @click="backToRealtime"><span class="app-icon" data-icon="rotate-ccw"></span>返回实时</button>
+    <span class="connlight" :class="connClass"><span class="dot-ind" :class="connClass"></span>{{ connStatus }}</span>
+    <span class="meta"><span class="app-icon" data-icon="plug"></span>主站端口 {{ masterPortText }} <a href="#" @click.prevent="detectMaster">[扫描]</a></span>
+    <span class="meta"><span class="app-icon" data-icon="chart-line"></span>帧 {{ stats.count || 0 }} / 累计 {{ stats.total || 0 }}<template v-if="stats.queue"> ｜ 队列 {{ stats.queue }}</template><template v-if="stats.pending"> ｜ 重排 {{ stats.pending }}</template><template v-if="stats.dropped"> ｜ <span style="color:var(--warn)">丢弃 {{ stats.dropped }}</span></template></span>
+    <span class="spacer"></span>
+    <span class="meta"><label><input type="checkbox" v-model="cfg.ui.autoScroll" @change="setAutoScroll"><span class="app-icon" data-icon="arrow-down"></span>自动滚动</label></span>
+    <!-- 点表数据库（Edit → dbSelect）：常驻极简标识，明细仅在鼠标悬浮时显示 -->
+    <span class="meta" :title="dbInfo.ok ? ('点表已加载：' + dbInfo.detail) : '未加载点表（Edit → dbSelect 选择点表数据库）'"><span class="app-icon" data-icon="table"></span>点表<span v-if="dbInfo.ok" class="dot-ind ok"></span></span>
+    <select v-if="dbInfo.ok" v-model="dbTable" @change="setDbTable"
+            :title="'点表数据库：' + dbInfo.detail"
+            style="background:var(--bg3);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:2px 4px;">
+      <option value="__all__">全部点表(All points)</option>
+      <option v-for="t in dbInfo.tableNames" :key="t" :value="t">{{ t }}</option>
+    </select>
+    <select v-if="dbInfo.ok && (dbInfo.hasGwParam || dbInfo.hasNwParam)" v-model="dbParamTable" @change="setDbParamTable"
+            title="定值表：定值信息体地址 = Addr（十进制），名称 = Name；地址默认显示十六进制"
+            style="background:var(--bg3);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:2px 4px;">
+      <option value="">定值表：无</option>
+      <option v-if="dbInfo.hasGwParam" value="gw">定值表：国网</option>
+      <option v-if="dbInfo.hasNwParam" value="nw">定值表：南网</option>
+    </select>
+    <button class="btn" v-if="dbInfo.ok" @click="dbClear"><span class="app-icon" data-icon="trash"></span>移除点表</button>
+  </div>
+
+  <!-- 搜索与筛选面板（Search by rules + Filter）-->
+  <div class="searchpanel" v-if="searchOpen">
+    <div class="sp-block">
+      <div class="sp-title"><span class="app-icon" data-icon="search"></span>Search by rules（规则搜索：命中整行高亮）</div>
+      <div class="sp-row">
+        <input type="text" v-model="search.pattern" placeholder="搜索内容（通配符 * ? 或正则表达式）…" @keyup.enter="applySearch">
+        <select v-model="search.mode">
+          <option value="wildcard">通配符（* ?）</option>
+          <option value="regex">正则表达式</option>
+        </select>
+        <button class="btn primary" @click="applySearch">搜索</button>
+        <button class="btn" @click="clearSearch">清除高亮</button>
+      </div>
+      <div class="sp-fields">
+        <span class="sp-label">搜索范围：</span>
+        <label v-for="fd in searchFields" :key="fd.k">
+          <input type="checkbox" :value="fd.k" v-model="search.fields">{{ fd.label }}
+        </label>
+      </div>
+    </div>
+    <div class="sp-block">
+      <div class="sp-title"><span class="app-icon" data-icon="filter"></span>Filter（筛选报文：可组合条件，仅显示匹配项）</div>
+      <div class="sp-grid">
+        <label>时间从 <input type="text" v-model="filter.timeFrom" placeholder="2026-10-16 15:00"></label>
+        <label>时间到 <input type="text" v-model="filter.timeTo" placeholder="2026-10-16 16:00"></label>
+        <label>方向
+          <select v-model="filter.dir">
+            <option value="">全部</option><option value="M→T">M→T（主站→终端）</option><option value="T→M">T→M（终端→主站）</option>
+          </select>
+        </label>
+        <label>协议
+          <select v-model="filter.proto"><option value="">全部</option><option value="104">104</option><option value="101">101</option></select>
+        </label>
+        <label>分类
+          <select v-model="filter.category"><option value="">全部</option><option v-for="c in categories" :key="c" :value="c">{{ c }}</option></select>
+        </label>
+        <label>TI <input type="text" v-model="filter.ti" placeholder="如 1,3,9,13 或 1*,3?"></label>
+        <label>原文报文 <input type="text" v-model="filter.hex" placeholder="HEX 匹配（正则/通配符）"></label>
+        <label>匹配模式
+          <select v-model="filter.mode"><option value="wildcard">通配符（* ?）</option><option value="regex">正则表达式</option></select>
+        </label>
+      </div>
+      <div class="sp-foot">
+        <span class="meta">筛选结果：{{ filterInfo }} 条 ｜ 搜索命中：{{ hitCount }} 条</span>
+        <span class="spacer"></span>
+        <button class="btn" @click="resetFilter">重置筛选</button>
+        <button class="btn" @click="searchOpen=false">收起</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主体 -->
+  <div class="main">
+    <!-- 实时模式 / 导入回放 -->
+    <template v-if="cfg.mode==='realtime'">
+      <div class="listpane">
+        <div class="scroller">
+          <table class="msgtable">
+            <thead><tr>
+              <th class="col-id">#</th><th class="col-time">时间</th><th class="col-dir">方向</th>
+              <th class="col-proto">协议</th><th class="col-cat">分类</th><th>类型(TI)/摘要</th>
+              <th class="col-hex">报文原文(HEX)</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="r in displayFrames" :key="r.id" :class="{sel: selected && selected.id===r.id && source!=='static', hit: hitIds[r.id]}"
+                  @click="view==='import' ? selectImported(r) : selectRealtime(r)">
+                <td>{{ r.id }}</td><td>{{ r.time }}</td><td>{{ r.dir }}</td>
+                <td>{{ r.proto }}</td><td>{{ r.category }}</td>
+                <td :title="r.tiName + ' | ' + r.summary">{{ r.tiName }} ｜ {{ r.summary }}</td>
+                <td class="hexcell" :title="r.hex">{{ r.hex }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="empty" v-if="listFrames.length===0">{{ view==='import' ? '无导入数据' : '等待报文…（点击"开始监听"后，主站↔终端报文实时显示）' }}</div>
+      </div>
+      <div class="splitter"></div>
+      <div class="detailpane">
+        <div class="empty" v-if="!selected">点击左侧任意报文，立即在此渲染解析结果</div>
+        <div class="detail" v-else v-html="detailHTML"></div>
+      </div>
+    </template>
+    <!-- 静态模式（Edit → Mode → Static Parser）-->
+    <template v-else>
+      <div class="staticpane">
+        <div class="staticinput">
+          <textarea v-model="staticText" placeholder="输入报文 HEX（每行一条，104 与 101 自适应）…"></textarea>
+          <div class="staticactions">
+            <button class="btn primary" @click="parseStatic">解析</button>
+            <button class="btn" @click="fillSample">示例</button>
+            <button class="btn" @click="clearStatic">清空</button>
+          </div>
+        </div>
+        <div class="staticbody">
+          <div class="listpane">
+            <div class="scroller">
+              <table class="msgtable">
+                <thead><tr>
+                  <th class="col-id">#</th><th class="col-time">时间</th><th class="col-proto">协议</th>
+                  <th class="col-cat">分类</th><th>类型(TI)/摘要</th>
+                  <th class="col-hex">报文原文(HEX)</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="r in staticFrames" :key="r.id" :class="{sel: selected && selected.id===r.id && source==='static', hit: hitIds[r.id]}" @click="selectStatic(r)">
+                    <td>{{ r.id }}</td><td>{{ r.time }}</td><td>{{ r.proto }}</td>
+                    <td>{{ r.category }}</td><td :title="r.tiName + ' | ' + r.summary">{{ r.tiName }} ｜ {{ r.summary }}</td>
+                    <td class="hexcell" :title="r.hex">{{ r.hex }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="empty" v-if="staticFrames.length===0">输入报文后点击"解析"，结果逐条列出</div>
+          </div>
+          <div class="splitter"></div>
+          <div class="detailpane">
+            <div class="empty" v-if="!selected">点击上方报文查看渲染结果</div>
+            <div class="detail" v-else v-html="detailHTML"></div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- 状态栏：最近状态事件 + 模式/Npcap 信息（header 保持简洁）-->
+  <footer class="statusbar">
+    <span v-for="(s,i) in statusTail" :key="i" class="stat" :class="s.level">[{{ s.time }}] {{ s.text }}</span>
+    <span class="spacer"></span>
+    <span class="stat engine"><span class="app-icon" :data-icon="cfg.mode==='static' ? 'code' : 'bolt'"></span>{{ modeLabel }}</span>
+    <span class="stat"><span class="app-icon" data-icon="wifi"></span>{{ pcapInfo }}</span>
+  </footer>
+
+  <!-- Connection 模态（需求第 7 条） -->
+  <div class="modal-mask" v-if="showConn" @click.self="showConn=false">
+    <div class="modal wide">
+      <h3>Setting → Connection 连接配置</h3>
+
+      <div class="msec">监听</div>
+      <div class="mcol">
+        <div class="row"><label>模式</label>
+          <select v-model="conn.mode" @change="onConnModeChange">
+            <option value="net">网口旁听（104 · 不占用端口）</option>
+            <option value="serial">串口（101）</option>
+          </select>
+        </div>
+        <template v-if="conn.mode==='net'">
+          <div class="row"><label>网卡</label>
+            <select v-model="conn.device" :title="'选择与终端同网段的网卡' + (deviceFullTitle ? '\n' + deviceFullTitle : '')">
+              <option v-for="d in devices" :key="d.name" :value="d.name" :title="(d.ips||[]).join(', ')">{{ deviceLabel(d) }}</option>
+            </select>
+          </div>
+          <div class="mrow2">
+            <div class="row"><label>终端 IP</label><input type="text" v-model="conn.terminalIp"></div>
+            <div class="row"><label>终端端口</label><input type="number" v-model="conn.terminalPort"></div>
+          </div>
+          <div class="mrow2">
+            <div class="row"><label>主站 IP</label><input type="text" v-model="conn.masterIp" placeholder="留空=不过滤"></div>
+            <div class="row"><label>主站端口</label><input type="number" v-model="conn.masterPort" placeholder="0=自动"><button class="btn tiny" @click="detectMaster">扫描</button></div>
+          </div>
+          <div class="row"><label>混杂模式</label>
+            <label title="捕获非本机流量需交换机镜像端口"><input type="checkbox" v-model="conn.promisc"> 捕获非本机流量</label>
+          </div>
+        </template>
+        <template v-else>
+          <div class="mrow2">
+            <div class="row"><label>串口</label>
+              <select v-model="conn.device"><option v-for="p in serialPorts" :key="p" :value="p">{{ p }}</option></select>
+            </div>
+            <div class="row"><label>串口模式</label>
+              <select v-model="conn.serialMode" title="485 总线：并联挂接被动旁听（零占用）；232 点对点：仅能直接测试">
+                <option value="passive">485 总线被动旁听</option>
+                <option value="direct">232 直接测试</option>
+              </select>
+            </div>
+          </div>
+          <div class="mrow2">
+            <div class="row"><label>波特率</label>
+              <select v-model="conn.baudRate"><option v-for="b in [300,600,1200,2400,4800,9600,19200,38400,115200]" :key="b" :value="b">{{ b }}</option></select>
+            </div>
+            <div class="row"><label>数据位</label>
+              <select v-model="conn.dataBits"><option :value="7">7</option><option :value="8">8</option></select>
+            </div>
+          </div>
+          <div class="mrow2">
+            <div class="row"><label>校验</label>
+              <select v-model="conn.parity"><option value="none">无(N)</option><option value="even">偶(E)</option><option value="odd">奇(O)</option></select>
+            </div>
+            <div class="row"><label>停止位</label>
+              <select v-model="conn.stopBits"><option :value="1">1</option><option :value="2">2</option></select>
+            </div>
+          </div>
+          <div class="row"><label>链路地址</label><input type="number" v-model="conn.linkAddr"></div>
+        </template>
+      </div>
+      <div class="mnote">旁听模式不 bind/connect 终端端口；网口抓包需管理员权限</div>
+      <div class="msec">解析</div>
+      <div class="mcol">
+        <div class="mrow2">
+          <div class="row"><label>缓冲上限</label><input type="number" v-model="cfg.session.maxFrames" title="报文环形缓冲条数上限（超出丢弃最旧）"></div>
+          <div class="row"><label>解析并发</label><input type="number" v-model="cfg.session.parseWorkers" min="1" max="256" title="1~256（默认 16）：多线程并行解析，结果仍按抓包顺序输出"></div>
+        </div>
+        <div class="mrow2">
+          <div class="row"><label>队列缓冲</label><input type="number" v-model="cfg.session.parseQueueSize" title="默认 4096：等待解析的报文缓冲长度（非总量上限），满时丢弃并计数"></div>
+          <div class="row"><label>暂停时丢弃</label><label title="勾选后暂停期间不缓冲新报文"><input type="checkbox" v-model="cfg.ui.dropWhenPaused"> 暂停不缓冲</label></div>
+        </div>
+      </div>
+
+      <div class="msec">显示</div>
+      <div class="mcol">
+        <div class="row"><label>地址显示</label>
+          <span class="inline-fields" title="各类型信息体地址的显示进制（遥测/遥控/电能量/定值默认十六进制）">
+            遥信<select v-model="cfg.parse.addrFormat.yx"><option value="hex">十六进制</option><option value="dec">十进制</option></select>
+            遥测<select v-model="cfg.parse.addrFormat.yc"><option value="hex">十六进制</option><option value="dec">十进制</option></select>
+            遥控<select v-model="cfg.parse.addrFormat.yk"><option value="hex">十六进制</option><option value="dec">十进制</option></select>
+            电能量<select v-model="cfg.parse.addrFormat.en"><option value="hex">十六进制</option><option value="dec">十进制</option></select>
+            定值<select v-model="cfg.parse.addrFormat.para"><option value="hex">十六进制</option><option value="dec">十进制</option></select>
+          </span>
+        </div>
+        <div class="row"><label>转发基址</label>
+          <span class="inline-fields" title="选定具体点表时：信息体地址 = 基址 + SwitchPoint，点名为 SwitchName">
+            遥信<input type="number" class="num-sm" v-model="cfg.parse.yxTransferBase">
+            遥测<input type="number" class="num-sm" v-model="cfg.parse.ycTransferBase">
+            遥控<input type="number" class="num-sm" v-model="cfg.parse.ykTransferBase">
+            电能量<input type="number" class="num-sm" v-model="cfg.parse.enTransferBase">
+          </span>
+        </div>
+      </div>
+
+      <div class="modalfoot">
+        <button class="btn" @click="showConn=false">取消</button>
+        <button class="btn primary" @click="applyConn">应用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导出范围询问（存在筛选时）-->
+  <div class="modal-mask" v-if="exportAsk" @click.self="exportAskCancel">
+    <div class="modal small">
+      <h3>导出选项（渲染使用当前点表）</h3>
+      <div class="kv">当前存在筛选条件：显示 <b>{{ exportAsk.shown }}</b> / 共 <b>{{ exportAsk.total }}</b> 条报文。</div>
+      <div class="kv">请选择导出范围：</div>
+      <div class="modalfoot">
+        <button class="btn" @click="exportAskCancel">取消</button>
+        <button class="btn" @click="exportAskAll">导出全部报文</button>
+        <button class="btn primary" @click="exportAskFiltered">仅导出筛选结果</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div class="toast" v-if="toast" :class="{err: toastErr}">{{ toast }}</div>
+</div>
+
+<script src="assets/vue.global.prod.js"></script>
+<script src="assets/icons.js"></script>
+<script src="assets/search.js"></script>
+<script src="assets/render.js"></script>
+<script src="assets/render2.js"></script>
+<script src="assets/appcore.js"></script>
+<script src="assets/appactions.js"></script>
+<script src="assets/appactions2.js"></script>
+<script src="assets/appactions3.js"></script>
+<script src="assets/appactions4.js"></script>
+<script src="assets/appactions5.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

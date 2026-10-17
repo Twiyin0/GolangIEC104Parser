@@ -1,0 +1,187 @@
+/* 104ParserRealTime 前端样式：暗/亮双主题（CSS 变量） */
+:root, body {
+  --bg: #0f141a; --bg2: #161d26; --bg3: #1d2733;
+  --fg: #d7e1ea; --fg2: #8fa1b3; --line: #2a3644;
+  --accent: #3b9dff; --accent2: #66e0ff;
+  --ok: #35c77b; --warn: #e6b450; --err: #ff5f6b;
+  --thead-bg: #24435f; --thead-fg: #bfe0ff;
+  --row-odd: #131a23; --row-even: #1a2431; --row-hover: #203046;
+  --sel: #1c3a5e;
+  --sb-thumb: #37475a; --sb-thumb-hover: #4d637c;
+}
+body.light {
+  --bg: #f3f6fa; --bg2: #ffffff; --bg3: #e9eef4;
+  --fg: #1c2733; --fg2: #5b6b7b; --line: #d4dde6;
+  --accent: #0b67d6; --accent2: #0899b8;
+  --ok: #12995a; --warn: #b07d10; --err: #d83848;
+  --thead-bg: #c8dcf0; --thead-fg: #143a63;
+  --row-odd: #ffffff; --row-even: #eef3f9; --row-hover: #dde9f5;
+  --sel: #bcd8f2;
+  --sb-thumb: #c3cfdb; --sb-thumb-hover: #a6b6c7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 13px/1.45 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* 表单控件必须可编辑：body 的 user-select:none 会被继承，
+   在 WebView2/Chromium 下表现为"输入框可聚焦但无法输入、无光标"（同 WebKit bug 82682/118009），
+   故对所有可输入控件强制恢复 user-select: text。 */
+input, textarea, select, option, [contenteditable="true"], [contenteditable=""] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.modal input, .modal textarea, .modal select { caret-color: var(--accent); }
+.modal-mask, .modal { pointer-events: auto; }
+
+/* ── 滚动条（与主题统一：细滑块 + 透明轨道，隐藏箭头按钮）── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: var(--sb-thumb);
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+::-webkit-scrollbar-thumb:active { background-color: var(--accent); }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+[v-cloak] { display: none; }
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ── 菜单栏 ── */
+/* 矢量图标（iconLib：内联 SVG 注入 + currentColor 继承，不使用 emoji / 不依赖 mask） */
+.app-icon {
+  display: inline-block; vertical-align: -2px; line-height: 0;
+  width: var(--icon-size, 1em); height: var(--icon-size, 1em);
+  margin-right: 5px;
+}
+.app-icon svg { width: 100%; height: 100%; display: block; }
+.app-icon.nm { margin-right: 0; }
+.btn .app-icon { vertical-align: -2px; }
+/* 品牌 Logo */
+.brand { display: flex; align-items: center; gap: 6px; }
+.logo-img { height: 22px; width: 22px; display: block; }
+
+.menubar {
+  display: flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  background: var(--bg2); border-bottom: 1px solid var(--line); padding: 2px 8px;
+}
+.brand { font-weight: 700; color: var(--accent); padding: 4px 10px 4px 0; font-size: 14px; }
+.menus { display: flex; }
+.menu { position: relative; }
+.menu > button {
+  background: none; border: 0; color: var(--fg); padding: 6px 12px; cursor: pointer;
+  font: inherit; border-radius: 4px;
+}
+.menu > button:hover, .menu.open > button { background: var(--bg3); }
+.dropdown {
+  display: none; position: absolute; top: 100%; left: 0; min-width: 220px; z-index: 50;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35); padding: 4px;
+}
+.menu.open .dropdown { display: block; }
+.dropdown button {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  color: var(--fg); padding: 7px 10px; cursor: pointer; font: inherit; border-radius: 4px;
+}
+.dropdown button:hover { background: var(--bg3); }
+.dropdown .sep { height: 1px; background: var(--line); margin: 4px 2px; }
+.submenu { position: relative; }
+.submenu > span { display: block; padding: 7px 10px; }
+.submenu:hover > span { background: var(--bg3); border-radius: 4px; }
+.subitems {
+  display: none; position: absolute; left: 100%; top: 0; min-width: 150px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
+}
+.submenu:hover .subitems { display: block; }
+.subitems button {
+  display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--fg);
+  padding: 6px 10px; cursor: pointer; font: inherit; border-radius: 4px;
+}
+.subitems button:hover { background: var(--bg3); }
+.menu .check::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 7px;
+  vertical-align: middle; border-radius: 50%; background: var(--ok);
+}
+.menu .uncheck::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 7px;
+  vertical-align: middle;
+}
+/* 状态点（纯 CSS，不使用 emoji）：.dot-ind[.ok/.warn/.err/.up/.syn/.down/.off] */
+.dot-ind {
+  display: inline-block; width: 8px; height: 8px; margin-right: 5px;
+  border-radius: 50%; background: var(--fg2); vertical-align: middle;
+}
+.dot-ind.ok, .dot-ind.up { background: var(--ok); }
+.dot-ind.warn, .dot-ind.syn { background: var(--warn); }
+.dot-ind.err, .dot-ind.down { background: var(--err); }
+.dot-ind.off { background: var(--fg2); }
+/* 工具栏内的 Search 按钮（与菜单同风格） */
+.menu-btn {
+  background: none; border: 0; color: var(--fg); padding: 6px 12px; cursor: pointer;
+  font: inherit; border-radius: 4px; white-space: nowrap;
+}
+.menu-btn:hover { background: var(--bg3); }
+.menu-btn.active { background: var(--bg3); color: var(--accent); }
+.menu-btn .dot { color: var(--warn); margin-left: 3px; }
+.spacer { flex: 1; }
+.appinfo { color: var(--fg2); font-size: 11px; padding: 0 8px; }
+
+/* ── 工具栏（header 行）：整项换行，不拆分按钮文字 ── */
+.toolbar {
+  display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; row-gap: 6px;
+  background: var(--bg2); border-bottom: 1px solid var(--line); padding: 6px 10px;
+}
+.btn {
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 4px 11px; cursor: pointer; font: inherit;
+  white-space: nowrap; flex: 0 0 auto; line-height: 1.35;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { color: #fff; opacity: .9; }
+.btn.danger { background: var(--err); border-color: var(--err); color: #fff; }
+.connlight { font-weight: 600; white-space: nowrap; }
+.connlight.up { color: var(--ok); }
+.connlight.syn { color: var(--warn); }
+.connlight.down, .connlight.off { color: var(--fg2); }
+.meta { color: var(--fg2); font-size: 12px; white-space: nowrap; }
+.meta input { vertical-align: -2px; }
+
+/* ── 主体 ── */
+.main { flex: 1; display: flex; min-height: 0; }
+.listpane { flex: 0 0 46%; display: flex; flex-direction: column; min-width: 420px; border-right: 1px solid var(--line); position: relative; }
+.detailpane { flex: 1; overflow: auto; padding: 12px 16px; user-select: text; }
+.empty { color: var(--fg2); padding: 40px; text-align: center; }
+.listpane .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.scroller { flex: 1; overflow: auto; }
+
+/* ── 状态栏 ── */
+.statusbar {
+  flex: 0 0 auto; display: flex; gap: 16px; align-items: center;
+  background: var(--bg2); border-top: 1px solid var(--line); padding: 3px 10px;
+  color: var(--fg2); font-size: 12px; overflow: hidden; white-space: nowrap;
+}
+.statusbar .stat { text-overflow: ellipsis; }
+.stat.engine { color: var(--accent); } .stat.tcp { color: var(--ok); }
+.stat.app { color: var(--warn); } .stat.serial { color: var(--accent2); }
+.stat.err { color: var(--err); }
+
+/* toast */
+.toast {
+  position: fixed; bottom: 46px; left: 50%; transform: translateX(-50%);
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--accent);
+  border-radius: 6px; padding: 8px 18px; z-index: 200; box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  max-width: 70%; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+}
+.toast.err { border-color: var(--err); color: var(--err); }

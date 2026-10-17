@@ -1,0 +1,20 @@
+# 统一换行处理：仓库内按 LF 存储，检出时按平台自动转换
+* text=auto
+
+# Windows 脚本必须 CRLF，避免 cmd 解析异常
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制资源不做换行转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.syso binary
+*.exe binary
+*.zip binary
+*.dll binary
+*.lib binary
+*.db binary
+*.sqlite binary
+*.pdf binary

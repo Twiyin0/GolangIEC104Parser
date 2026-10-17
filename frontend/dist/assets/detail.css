@@ -1,0 +1,134 @@
+/* 详情渲染与静态模式样式：斑马纹表格（偶/奇行双色）、表头独立配色 */
+
+/* 报文列表表 */
+.msgtable { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.msgtable thead th {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--thead-bg); color: var(--thead-fg);
+  font-weight: 600; text-align: left; padding: 6px 8px; white-space: nowrap;
+}
+.msgtable tbody td { padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msgtable tbody tr { cursor: pointer; }
+.msgtable tbody tr:nth-child(odd) { background: var(--row-odd); }
+.msgtable tbody tr:nth-child(even) { background: var(--row-even); }
+.msgtable tbody tr:hover { background: var(--row-hover); }
+.msgtable tbody tr.sel { background: var(--sel) !important; }
+.col-id { width: 52px; } .col-time { width: 130px; } .col-dir { width: 46px; }
+.col-proto { width: 44px; } .col-cat { width: 80px; }
+.col-hex { width: 34%; }
+.msgtable td.hexcell {
+  font-family: Consolas, "Courier New", monospace; font-size: 11px;
+  color: var(--accent2); letter-spacing: 0;
+}
+
+/* ── 左右分栏拖动条 ── */
+.splitter {
+  flex: 0 0 4px; cursor: col-resize; background: var(--line);
+  transition: background .12s;
+}
+.splitter:hover, .splitter.active { background: var(--accent); }
+
+/* ── 搜索与筛选面板 ── */
+.searchpanel {
+  flex: 0 0 auto; background: var(--bg2); border-bottom: 1px solid var(--line);
+  padding: 8px 10px; display: flex; gap: 14px; flex-wrap: wrap;
+}
+.sp-block { flex: 1 1 420px; min-width: 380px; }
+.sp-title { font-weight: 700; color: var(--accent); margin-bottom: 6px; font-size: 12px; }
+.sp-row { display: flex; gap: 6px; align-items: center; }
+.sp-row input[type=text] {
+  flex: 1; background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 5px 8px; font: inherit;
+}
+.sp-row select, .sp-grid select, .sp-grid input {
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 4px 6px; font: inherit;
+}
+.sp-fields { margin-top: 6px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+.sp-fields .sp-label { color: var(--fg2); }
+.sp-fields label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.sp-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 6px 12px; font-size: 12px;
+}
+.sp-grid label { display: flex; align-items: center; gap: 6px; color: var(--fg2); }
+.sp-grid label input { flex: 1; min-width: 80px; }
+.sp-grid label select { flex: 1; }
+.sp-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+/* 搜索命中：整行高亮 */
+.msgtable tbody tr.hit { background: rgba(230, 180, 80, .32) !important; }
+.msgtable tbody tr.hit td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+body.light .msgtable tbody tr.hit { background: rgba(230, 180, 80, .40) !important; }
+
+/* 小尺寸按钮（文件解析格式切换） */
+.btn.tiny { padding: 2px 8px; font-size: 12px; margin-left: 6px; }
+.sec .kv .btn.tiny:first-of-type { margin-left: 0; }
+
+/* 小尺寸模态（导出询问） */
+.modal.small { width: 460px; }
+/* Connection 面板：加宽 + 分区 + 紧凑字段 */
+.modal.wide { width: 820px; }
+.modal .msec {
+  color: var(--accent); font-weight: 700; font-size: 12px;
+  margin: 12px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line);
+}
+.modal .mcol { display: flex; flex-direction: column; gap: 6px; }
+.modal .mrow2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+.modal .mnote { color: var(--fg2); font-size: 11px; margin-top: 6px; }
+.modal .row { margin: 0; }
+.modal .row label { flex: 0 0 80px; }
+.modal .row input, .modal .row select { padding: 4px 8px; }
+.modal .inline-fields {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center;
+  font-size: 12px; color: var(--fg2);
+}
+.modal .inline-fields select { padding: 2px 4px; }
+/* 下拉/输入框宽度受限于模态，长文本省略显示（完整内容见 title 悬浮提示） */
+.modal select, .modal input[type="text"] { max-width: 100%; text-overflow: ellipsis; }
+.modal .inline-fields input.num-sm { width: 76px; padding: 3px 6px; }
+.btn.active { border-color: var(--accent); color: var(--accent); }
+
+/* ── 详情渲染 ── */
+.detail h4.dhead { color: var(--accent); margin: 4px 0 10px; font-size: 14px; }
+.kv { margin: 6px 0; }
+.kv .k { color: var(--fg2); margin-right: 6px; }
+.hexblock {
+  font-family: Consolas, monospace; background: var(--bg3); border: 1px solid var(--line);
+  border-radius: 5px; padding: 8px 10px; margin: 8px 0; word-break: break-all;
+  user-select: text; color: var(--accent2);
+}
+.dtable { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
+.dtable caption { text-align: left; font-weight: 600; padding: 4px 0; color: var(--fg); }
+.dtable th { background: var(--thead-bg); color: var(--thead-fg); padding: 5px 8px; text-align: left; white-space: nowrap; }
+.dtable td { padding: 4px 8px; word-break: break-all; }
+.dtable tbody tr:nth-child(odd) { background: var(--row-odd); }
+.dtable tbody tr:nth-child(even) { background: var(--row-even); }
+.ret-success { color: var(--ok); font-weight: 600; }
+.ret-failed { color: var(--err); font-weight: 600; }
+.sec-title { font-weight: 700; border-left: 3px solid var(--accent); padding-left: 8px; margin: 12px 0 6px; }
+
+/* ── 静态模式 ── */
+.staticpane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.staticinput { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--line); padding: 8px; gap: 8px; }
+.staticinput textarea {
+  flex: 1; height: 110px; background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 8px; font: 12px Consolas, monospace; resize: vertical; user-select: text;
+}
+.staticactions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.staticbody { flex: 1; display: flex; min-height: 0; }
+.staticbody .listpane { flex: 0 0 40%; min-width: 340px; }
+.staticbody .detailpane { flex: 1; }
+
+/* ── 模态（Connection）── */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; width: 640px; max-height: 86vh; overflow: auto; padding: 16px 18px; }
+.modal h3 { color: var(--accent); margin-bottom: 12px; font-size: 15px; }
+.modal .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.modal .row label { flex: 0 0 110px; color: var(--fg2); }
+.modal input[type=text], .modal input[type=number], .modal select {
+  flex: 1; background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 5px 8px; font: inherit;
+}
+.modal .hint { color: var(--fg2); font-size: 11px; margin: 4px 0 4px 120px; }
+.modalfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
