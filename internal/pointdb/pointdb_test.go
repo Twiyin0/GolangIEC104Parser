@@ -202,3 +202,38 @@ func TestLoadInvalid(t *testing.T) {
 		t.Fatal("expect error for invalid db")
 	}
 }
+
+// 101/104 可各自选择不同点表模式：一个选具体转发表、另一个保持全点表（反之亦可）。
+func TestPointDBPerProtocol(t *testing.T) {
+	d, err := Load(buildTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 101 选 1#主变（转发），104 保持全部
+	d.SetTable("101", "1#主变")
+	d.SetTable("104", "")
+	if got := d.PtNameFor("101", "yc", BaseYC+201); got != "I段10kV进线电压" {
+		t.Fatalf("101 转发表遥测 = %q", got)
+	}
+	if got := d.PtNameFor("101", "yc", 101); got != "全点表电压名" {
+		t.Fatalf("101 转发表未命中应回落全表 = %q", got)
+	}
+	if got := d.PtNameFor("104", "yc", 101); got != "全点表电压名" {
+		t.Fatalf("104 全部模式遥测 = %q", got)
+	}
+	if got := d.PtNameFor("104", "yc", BaseYC+201); got != "" {
+		t.Fatalf("104 全部模式不应命中 0x4000+201 转发地址 = %q", got)
+	}
+	// 反过来：104 选转发表，101 全部
+	d.SetTable("104", "1#主变")
+	d.SetTable("101", "")
+	if got := d.PtNameFor("104", "yc", BaseYC+201); got != "I段10kV进线电压" {
+		t.Fatalf("104 转发表遥测 = %q", got)
+	}
+	if got := d.PtNameFor("101", "yc", BaseYC+201); got != "" {
+		t.Fatalf("101 全部模式不应命中转发地址 = %q", got)
+	}
+	if d.CurTable101 != "" || d.CurTable104 != "1#主变" {
+		t.Fatalf("协议选择状态错误: 101=%q 104=%q", d.CurTable101, d.CurTable104)
+	}
+}

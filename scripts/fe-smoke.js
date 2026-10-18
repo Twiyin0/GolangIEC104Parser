@@ -138,6 +138,12 @@ for (const n of iconNames) {
   assert(fs.existsSync(f), "图标文件缺失: " + n + ".svg");
 }
 assert(html.indexOf("--icon-url") < 0, "index.html 不应残留 mask 方式的图标标记");
+// 101/104 独立点表选择（防回归：两个协议可各自选全点表/转发表）
+assert(html.indexOf('v-model="dbTable101"') >= 0 && html.indexOf('v-model="dbTable104"') >= 0,
+  "点表应提供 101/104 两个独立选择下拉");
+assert(html.indexOf("setDbTable('101')") >= 0 && html.indexOf("setDbTable('104')") >= 0,
+  "点表下拉应分别调用 setDbTable('101')/setDbTable('104')");
+assert(!/\bv-model="dbTable"\b/.test(html), "不应残留单一点表选择 dbTable");
 // normalizeSvg：注入 currentColor / 1em 尺寸 / 去声明（含子元素写死颜色改写）
 const raw = fs.readFileSync(path.join(distDir, "assets", "iconLib", "search.svg"), "utf8");
 const svg = ICONS.normalizeSvg(raw);

@@ -60,10 +60,11 @@ func (a *App) saveDialog(defaultName, filterExt string) (string, error) {
 }
 
 // ExportDialog 统一导出入口（File → Export）。
-//   kind   : md | txt | log
-//   source : session（实时缓冲）| import（导入回放）| static（静态解析，frames 由前端回传）
-//   frames : source=static 时前端回传的报文
-//   ids    : 非空时仅导出这些 ID 的报文（"仅导出筛选结果"）
+//
+//	kind   : md | txt | log
+//	source : session（实时缓冲）| import（导入回放）| static（静态解析，frames 由前端回传）
+//	frames : source=static 时前端回传的报文
+//	ids    : 非空时仅导出这些 ID 的报文（"仅导出筛选结果"）
 //
 // 导出前统一按**当前点表**注入点名/参数名（含当前表模式）。
 func (a *App) ExportDialog(kind string, source string, frames []protocol.Frame, ids []int64) (string, error) {
@@ -188,15 +189,11 @@ func (a *App) ParseStatic(text string) ([]protocol.Frame, error) {
 		if err != nil || len(buf) == 0 {
 			continue
 		}
-		f104 := protocol.ParseStream("104", buf)
-		f101 := protocol.ParseStream("101", buf)
-		var got []protocol.Frame
-		if len(f101) > len(f104) {
-			got = f101
-		} else if len(f104) > 0 {
-			got = f104
-		} else if f, err := protocol.ParseAuto(buf); err == nil {
-			got = []protocol.Frame{f}
+		// 优先按帧头/校验自适应；长度恰好为 104 时也要让 101 完整帧胜出
+		// （101 可变帧 68 L L 68 … CS 16，按 104 切会截断成 68 L … 而被误判为 104）。
+		got := protocol.ParseBest(buf)
+		if len(got) == 0 {
+			continue
 		}
 		for i := range got {
 			got[i].Time = now

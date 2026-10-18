@@ -32,7 +32,8 @@ if (window.runtime && window.runtime.EventsOn) {
   window.runtime.EventsOn("db", (info) => {
     if (!info) return;
     vm.dbInfo = info;
-    vm.dbTable = info.curTable || "__all__";
+    vm.dbTable101 = info.curTable101 || "__all__";
+    vm.dbTable104 = info.curTable104 || "__all__";
     vm.syncParseCfgFromDb(); // 定值表选择同步进 cfg（避免后续配置推送清空）
   });
 }

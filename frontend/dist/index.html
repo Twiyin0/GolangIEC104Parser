@@ -79,13 +79,19 @@
     <span class="meta"><span class="app-icon" data-icon="chart-line"></span>帧 {{ stats.count || 0 }} / 累计 {{ stats.total || 0 }}<template v-if="stats.queue"> ｜ 队列 {{ stats.queue }}</template><template v-if="stats.pending"> ｜ 重排 {{ stats.pending }}</template><template v-if="stats.dropped"> ｜ <span style="color:var(--warn)">丢弃 {{ stats.dropped }}</span></template></span>
     <span class="spacer"></span>
     <span class="meta"><label><input type="checkbox" v-model="cfg.ui.autoScroll" @change="setAutoScroll"><span class="app-icon" data-icon="arrow-down"></span>自动滚动</label></span>
-    <!-- 点表数据库（Edit → dbSelect）：常驻极简标识，明细仅在鼠标悬浮时显示 -->
+    <!-- 点表数据库（Edit → dbSelect）：101/104 可各自选择不同点表模式 -->
     <span class="meta" :title="dbInfo.ok ? ('点表已加载：' + dbInfo.detail) : '未加载点表（Edit → dbSelect 选择点表数据库）'"><span class="app-icon" data-icon="table"></span>点表<span v-if="dbInfo.ok" class="dot-ind ok"></span></span>
-    <select v-if="dbInfo.ok" v-model="dbTable" @change="setDbTable"
-            :title="'点表数据库：' + dbInfo.detail"
+    <select v-if="dbInfo.ok" v-model="dbTable101" @change="setDbTable('101')"
+            :title="'101 协议点表模式；数据库：' + dbInfo.detail"
             style="background:var(--bg3);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:2px 4px;">
-      <option value="__all__">全部点表(All points)</option>
-      <option v-for="t in dbInfo.tableNames" :key="t" :value="t">{{ t }}</option>
+      <option value="__all__">101：全部点表</option>
+      <option v-for="t in dbInfo.tableNames" :key="'101-' + t" :value="t">101：{{ t }}</option>
+    </select>
+    <select v-if="dbInfo.ok" v-model="dbTable104" @change="setDbTable('104')"
+            :title="'104 协议点表模式；数据库：' + dbInfo.detail"
+            style="background:var(--bg3);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:2px 4px;">
+      <option value="__all__">104：全部点表</option>
+      <option v-for="t in dbInfo.tableNames" :key="'104-' + t" :value="t">104：{{ t }}</option>
     </select>
     <select v-if="dbInfo.ok && (dbInfo.hasGwParam || dbInfo.hasNwParam)" v-model="dbParamTable" @change="setDbParamTable"
             title="定值表：定值信息体地址 = Addr（十进制），名称 = Name；地址默认显示十六进制"

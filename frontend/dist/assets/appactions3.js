@@ -9,12 +9,17 @@ const AppActions3 = {
     if (!this.cfg || !this.cfg.parse) return;
     this.cfg.parse.paramTable = (this.dbInfo && this.dbInfo.paramTable) || "";
   },
+  // 统一刷新点表状态：101/104 各自的选择分开保存，互不覆盖。
+  applyDbInfo(info) {
+    this.dbInfo = info || { ok: false, detail: "", tableNames: [], curTable: "", curTable101: "", curTable104: "", paramTable: "" };
+    this.dbTable101 = this.dbInfo.curTable101 || "__all__";
+    this.dbTable104 = this.dbInfo.curTable104 || "__all__";
+    this.dbParamTable = this.dbInfo.paramTable || "";
+  },
   // 选择点表数据库（.db/.sqlite/.sqlite3）
   dbSelect() {
     this.api().DbSelectDialog().then((info) => {
-      this.dbInfo = info || { ok: false, detail: "", tableNames: [], curTable: "", paramTable: "" };
-      this.dbTable = this.dbInfo.curTable || "__all__";
-      this.dbParamTable = this.dbInfo.paramTable || "";
+      this.applyDbInfo(info);
       this.syncParseCfgFromDb();
       // 提示只显示文件名（明细悬浮点表标识查看），避免占用空间
       const brief = this.dbInfo.ok ? String(this.dbInfo.detail || "").split("  ")[0] : "";
@@ -22,22 +27,21 @@ const AppActions3 = {
       this.refreshAfterDbChange();
     }).catch((e) => this.showToast(((e && e.message) || e), true));
   },
-  // 切换点表模式（全部 / 具体表）
-  setDbTable() {
-    const name = this.dbTable === "__all__" ? "" : this.dbTable;
-    this.api().DbSetTable(name).then((info) => {
-      this.dbInfo = info;
-      this.dbTable = info.curTable || "__all__";
+  // 切换指定协议（"101"/"104"）的点表模式（全部 / 具体表），另一协议不受影响
+  setDbTable(proto) {
+    const v = proto === "101" ? this.dbTable101 : this.dbTable104;
+    const name = v === "__all__" ? "" : v;
+    this.api().DbSetTableFor(proto, name).then((info) => {
+      this.applyDbInfo(info);
       this.syncParseCfgFromDb();
-      this.showToast("点表模式：" + (this.dbTable === "__all__" ? "全部点表" : this.dbTable));
+      this.showToast(proto + " 点表模式：" + (name || "全部点表"));
       this.refreshAfterDbChange();
     }).catch((e) => this.showToast(((e && e.message) || e), true));
   },
   // 切换定值表（国网 / 南网 / 无）：定值信息体地址 = Addr（十进制），名称 = Name
   setDbParamTable() {
     this.api().DbSetParamTable(this.dbParamTable || "").then((info) => {
-      this.dbInfo = info;
-      this.dbParamTable = info.paramTable || "";
+      this.applyDbInfo(info);
       this.syncParseCfgFromDb();
       const label = this.dbParamTable === "gw" ? "国网" : this.dbParamTable === "nw" ? "南网" : "无";
       this.showToast("定值表：" + label);
@@ -47,9 +51,7 @@ const AppActions3 = {
   // 移除点表
   dbClear() {
     this.api().DbClear().then((info) => {
-      this.dbInfo = info;
-      this.dbTable = "__all__";
-      this.dbParamTable = "";
+      this.applyDbInfo(info);
       this.syncParseCfgFromDb();
       this.showToast("已移除点表数据库");
       this.refreshAfterDbChange();

@@ -4,7 +4,46 @@ import (
 	"testing"
 
 	"iec104rt/internal/protocol/common"
+	"iec104rt/internal/protocol/iec104"
 )
+
+// 101 可变帧：68 L L 68 C A ASDU CS 16。按 104 切会截断成 68 L …，
+// 自适应必须识别为 101（回归：静态解析曾因“104 帧数不少于 101”而误判）。
+func TestDetect101VariableFrame(t *testing.T) {
+	const hex = "68 BF BF 68 F3 01 00 0D A4 14 00 01 00 11 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 00 48 42 00 00 0B DE 41 00 00 00 C8 42 00 E9 75 AF BC 00 9A 5C B4 BC 00 3F 04 76 3A 00 0E E4 30 42 00 00 00 00 40 00 0E 84 9E B3 00 00 00 61 45 00 EB 32 5F 43 00 4E AB 5B 43 00 6A A2 5B 43 00 4C 96 A6 36 00 E5 69 B3 3D 00 12 CC 37 3B 00 1D 41 0E 3D 00 C7 78 37 3B 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 2A AE 73 3E 00 00 00 00 00 00 AE 3B 5A 43 00 8C 16"
+	buf, err := iec104.HexToBytes(hex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Detect(buf); got != "101" {
+		t.Fatalf("Detect = %q, want 101 (len=%d)", got, len(buf))
+	}
+	fs := ParseBest(buf)
+	if len(fs) != 1 || fs[0].Proto != "101" {
+		t.Fatalf("ParseBest = %d frames, proto=%v", len(fs), fs)
+	}
+	if fs[0].Ti != 13 {
+		t.Fatalf("101 遥测 TI 应为 13，实际 %d（%s）", fs[0].Ti, fs[0].TiName)
+	}
+	if d, ok := fs[0].Parsed["data"].([]common.M); !ok || len(d) != 36 {
+		t.Fatalf("101 遥测应为 36 点（VSQ=0xA4, SQ=1），实际 %d", len(d))
+	}
+	// 网口自适应切帧也必须按完整 101 帧切出，而不是截成 104
+	raws, rest := ExtractAuto(buf)
+	firstLen := 0
+	if len(raws) > 0 {
+		firstLen = len(raws[0])
+	}
+	if len(raws) != 1 || len(rest) != 0 || firstLen != len(buf) {
+		t.Fatalf("ExtractAuto 101 = %d frames, rest=%d, firstLen=%d (want 1/0/%d)",
+			len(raws), len(rest), firstLen, len(buf))
+	}
+	// 普通 104 APDU 不受影响
+	raws, rest = ExtractAuto([]byte{0x68, 0x04, 0x07, 0x00, 0x00, 0x00})
+	if len(raws) != 1 || len(rest) != 0 || len(raws[0]) != 6 {
+		t.Fatalf("ExtractAuto 104 = %d frames, rest=%d", len(raws), len(rest))
+	}
+}
 
 // build104 拼装 104 APDU：68 LL ctrl(4) ASDU
 func build104(ctrl []byte, asdu []byte) []byte {
@@ -234,10 +273,10 @@ func TestParseFileService210ActivateLE(t *testing.T) {
 	asdu := []byte{
 		0xD2, 0x01, 0x07, 0x00, 0x01, 0x00, // TI/VSQ/COT=7/CA
 		0x00, 0x00, 0x00, // IOA=0
-		0x02,       // 文件传输
-		0x04,       // 读文件激活确认
-		0x00,       // 成功
-		0x07,       // 文件名长度
+		0x02,                                     // 文件传输
+		0x04,                                     // 读文件激活确认
+		0x00,                                     // 成功
+		0x07,                                     // 文件名长度
 		0x73, 0x6F, 0x65, 0x2E, 0x78, 0x6D, 0x6C, // soe.xml
 		0x00, 0x00, 0x00, 0x00, // fileId=0
 		0x5D, 0xDC, 0x00, 0x00, // fileSize=56413，低字节在前

@@ -161,3 +161,67 @@ func TestEnrichWithoutDB(t *testing.T) {
 		t.Fatal("未加载点表时不应注入 name")
 	}
 }
+
+// TestParseStatic101VariableFrame 静态解析必须把 101 可变帧识别为 101，
+// 不能因为“按 104 切也能切出一帧”而误判为 104。
+func TestParseStatic101VariableFrame(t *testing.T) {
+	// 68 L L 68 F3 01 00 | ASDU(TI=13,VSQ=1,COT=20,CA=0,IOA=1,float 1.0) | CS 16
+	// 101 链路地址默认 2 字节，所以 A=01 00。
+	body := []byte{0xF3, 0x01, 0x00, 0x0D, 0x01, 0x14, 0x00, 0x01, 0x00, 0x00, 0x80, 0x3F}
+	cs := 0
+	for _, b := range body {
+		cs = (cs + int(b)) & 0xFF
+	}
+	frame := append([]byte{0x68, byte(len(body)), byte(len(body)), 0x68}, body...)
+	frame = append(frame, byte(cs), 0x16)
+
+	a := NewApp()
+	fs, err := a.ParseStatic(common.HexBytes(frame))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fs) != 1 || fs[0].Proto != "101" || fs[0].Ti != 13 {
+		t.Fatalf("静态解析应识别为 101/TI13，实际: %+v", fs)
+	}
+}
+
+// TestPointTablePerProtocol 101/104 可以各自选择不同点表模式，互不影响。
+func TestPointTablePerProtocol(t *testing.T) {
+	a := NewApp()
+	if _, err := a.LoadPointDb(buildPointDBForTest(t)); err != nil {
+		t.Fatal(err)
+	}
+	// 101 选具体转发表；104 保持全部
+	if _, err := a.DbSetTableFor("101", "1#主变"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.DbSetTableFor("104", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.ptNameFor("yc", 0x40C9, "101"); got != "I段10kV进线电压" {
+		t.Fatalf("101 转发表点名 = %q", got)
+	}
+	if got := a.ptNameFor("yc", 1, "104"); got != "10kV进线A相电压" {
+		t.Fatalf("104 全部模式点名 = %q", got)
+	}
+	if got := a.ptNameFor("yc", 0x40C9, "104"); got != "" {
+		t.Fatalf("104 全部模式不应命中转发地址 = %q", got)
+	}
+	// 反过来：104 选转发表；101 全部
+	if _, err := a.DbSetTableFor("104", "1#主变"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.DbSetTableFor("101", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.ptNameFor("yc", 0x40C9, "104"); got != "I段10kV进线电压" {
+		t.Fatalf("104 转发表点名 = %q", got)
+	}
+	if got := a.ptNameFor("yc", 1, "101"); got != "10kV进线A相电压" {
+		t.Fatalf("101 全部模式点名 = %q", got)
+	}
+	info := a.dbSnapshot()
+	if info.CurTable101 != "" || info.CurTable104 != "1#主变" {
+		t.Fatalf("DbInfo 协议选择状态错误: 101=%q 104=%q", info.CurTable101, info.CurTable104)
+	}
+}

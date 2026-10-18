@@ -71,29 +71,34 @@ type DB struct {
 	FilePath   string
 	Detail     string
 	TableNames []string
-	CurTable   string // "" = 全部模式（All points）
+	CurTable   string // 兼容旧字段：最近一次选择的表（"" = 全部模式）
+	// 101 / 104 可独立选择点表模式（"" 或 "全点表" = 全部模式）
+	CurTable101 string
+	CurTable104 string
 
 	// 转发点表基值（选定具体表时生效）
 	BaseYX, BaseYC, BaseYK, BaseEN int
 	YCBase                         int // 兼容旧字段（= BaseYC）
 
 	// 定值表（国网/南网）与当前选择
-	ParamTable    string
-	HasGWParam    bool
-	HasNWParam    bool
-	paramGW       []ParaPoint
-	paramNW       []ParaPoint
-	paramMap      map[int]ParaPoint // 当前定值表：Addr → 定值点
-	mapGW         map[int]ParaPoint // 国网全表映射（"无"时兜底补齐 参数类型/比例）
-	mapNW         map[int]ParaPoint // 南网全表映射
-	paraExtra     map[int]ParaPoint // 参数转发表中的 比例/参数类型（若库中存在这些列）
+	ParamTable string
+	HasGWParam bool
+	HasNWParam bool
+	paramGW    []ParaPoint
+	paramNW    []ParaPoint
+	paramMap   map[int]ParaPoint // 当前定值表：Addr → 定值点
+	mapGW      map[int]ParaPoint // 国网全表映射（"无"时兜底补齐 参数类型/比例）
+	mapNW      map[int]ParaPoint // 南网全表映射
+	paraExtra  map[int]ParaPoint // 参数转发表中的 比例/参数类型（若库中存在这些列）
 
 	rawYc, rawYx, rawYk, rawEn []Row
-	rawPara                   []ParaRow
+	rawPara                    []ParaRow
 
-	allYx, allYc, allYk, allEn                map[int]string
-	switchYx, switchYc, switchYk, switchEn    map[int]string
-	paraMap                                   map[int]string
+	// 全点表/转发表共享映射（与协议无关）
+	allYx, allYc, allYk, allEn map[int]string
+	paraMap                    map[int]string
+	// 协议独立的“选定具体表”切换映射
+	sw101, sw104 switchMaps
 }
 
 // Load 打开并加载点表数据库（缺表按空处理，容错与参考实现一致）。
@@ -180,7 +185,7 @@ func (d *DB) SetBases(yx, yc, yk, en int) {
 		d.BaseEN = en
 	}
 	d.YCBase = d.BaseYC
-	d.RebuildMaps(d.CurTable)
+	d.rebuildSwitches()
 }
 
 // SetParamTable 选择定值表（"" 无 | "gw" 国网 | "nw" 南网）。

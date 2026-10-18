@@ -15,25 +15,32 @@ import (
 
 // DbInfo 点表状态（前端 DbBar 展示）。
 type DbInfo struct {
-	Ok         bool     `json:"ok"`
-	Detail     string   `json:"detail"`
-	TableNames []string `json:"tableNames"`
-	CurTable   string   `json:"curTable"`
-	ParamTable string   `json:"paramTable"` // "" 无 | "gw" 国网 | "nw" 南网
-	HasGWParam bool     `json:"hasGwParam"`
-	HasNWParam bool     `json:"hasNwParam"`
+	Ok          bool     `json:"ok"`
+	Detail      string   `json:"detail"`
+	TableNames  []string `json:"tableNames"`
+	CurTable    string   `json:"curTable"` // 兼容：最近一次选择
+	CurTable101 string   `json:"curTable101"`
+	CurTable104 string   `json:"curTable104"`
+	ParamTable  string   `json:"paramTable"` // "" 无 | "gw" 国网 | "nw" 南网
+	HasGWParam  bool     `json:"hasGwParam"`
+	HasNWParam  bool     `json:"hasNwParam"`
+}
+
+func dbInfoOf(d *pointdb.DB) DbInfo {
+	if d == nil {
+		return DbInfo{TableNames: []string{}}
+	}
+	return DbInfo{Ok: true, Detail: d.Detail,
+		TableNames: d.TableNames, CurTable: d.CurTable,
+		CurTable101: d.CurTable101, CurTable104: d.CurTable104,
+		ParamTable: d.ParamTable,
+		HasGWParam: d.HasGWParam, HasNWParam: d.HasNWParam}
 }
 
 func (a *App) dbSnapshot() DbInfo {
 	a.muPoint.Lock()
 	defer a.muPoint.Unlock()
-	if a.pointDB == nil {
-		return DbInfo{TableNames: []string{}}
-	}
-	return DbInfo{Ok: true, Detail: a.pointDB.Detail,
-		TableNames: a.pointDB.TableNames, CurTable: a.pointDB.CurTable,
-		ParamTable: a.pointDB.ParamTable,
-		HasGWParam: a.pointDB.HasGWParam, HasNWParam: a.pointDB.HasNWParam}
+	return dbInfoOf(a.pointDB)
 }
 
 // DbSelectDialog Edit→dbSelect：选择工程点表数据库（.db/.sqlite/.sqlite3）。
@@ -76,7 +83,7 @@ func (a *App) LoadPointDb(path string) (DbInfo, error) {
 	return a.dbSnapshot(), nil
 }
 
-// DbSetTable 切换点表模式（""=全部模式；具体表名=切换模式）。
+// DbSetTable 兼容旧接口：同时切换 101/104 点表模式（""=全部模式；具体表名=切换模式）。
 func (a *App) DbSetTable(name string) (DbInfo, error) {
 	a.muPoint.Lock()
 	defer a.muPoint.Unlock()
@@ -86,10 +93,23 @@ func (a *App) DbSetTable(name string) (DbInfo, error) {
 	a.pointDB.SetBases(a.cfg.Parse.YXTransferBase, a.cfg.Parse.YCTransferBase,
 		a.cfg.Parse.YKTransferBase, a.cfg.Parse.ENTransferBase) // 应用最新基址配置
 	a.pointDB.RebuildMaps(name)
-	info := DbInfo{Ok: true, Detail: a.pointDB.Detail,
-		TableNames: a.pointDB.TableNames, CurTable: a.pointDB.CurTable,
-		ParamTable: a.pointDB.ParamTable,
-		HasGWParam: a.pointDB.HasGWParam, HasNWParam: a.pointDB.HasNWParam}
+	info := dbInfoOf(a.pointDB)
+	a.bumpDBRev()
+	a.emit("db", info)
+	return info, nil
+}
+
+// DbSetTableFor 按协议（"101"/"104"）切换点表模式：两个协议互不影响。
+func (a *App) DbSetTableFor(proto, name string) (DbInfo, error) {
+	a.muPoint.Lock()
+	defer a.muPoint.Unlock()
+	if a.pointDB == nil {
+		return DbInfo{TableNames: []string{}}, fmt.Errorf("未加载点表")
+	}
+	a.pointDB.SetBases(a.cfg.Parse.YXTransferBase, a.cfg.Parse.YCTransferBase,
+		a.cfg.Parse.YKTransferBase, a.cfg.Parse.ENTransferBase)
+	a.pointDB.RebuildMapsFor(proto, name)
+	info := dbInfoOf(a.pointDB)
 	a.bumpDBRev()
 	a.emit("db", info)
 	return info, nil
@@ -110,10 +130,7 @@ func (a *App) DbSetParamTable(kind string) (DbInfo, error) {
 	cfg := a.cfg
 	a.mu.Unlock()
 	a.saveConfigQuiet(cfg) // 选择持久化：避免重启后定值表回到"无"（参数类型/比例整列为空）
-	info := DbInfo{Ok: true, Detail: d.Detail,
-		TableNames: d.TableNames, CurTable: d.CurTable,
-		ParamTable: d.ParamTable,
-		HasGWParam: d.HasGWParam, HasNWParam: d.HasNWParam}
+	info := dbInfoOf(d)
 	a.bumpDBRev()
 	a.emit("db", info)
 	return info, nil
@@ -134,7 +151,8 @@ func (a *App) GetDbInfo() DbInfo { return a.dbSnapshot() }
 
 // ── 点名注入 ──────────────────────────────────────────────────────────
 
-// ptNameFor 查询点名（101 协议未命中时按 ProjectParaTransferPoint 转发近似处理）。
+// ptNameFor 查询点名：101/104 使用各自选定的点表模式；
+// 101 未命中时再按 ProjectParaTransferPoint 转发近似处理。
 func (a *App) ptNameFor(typ string, value int, proto string) string {
 	a.muPoint.Lock()
 	d := a.pointDB
@@ -142,11 +160,11 @@ func (a *App) ptNameFor(typ string, value int, proto string) string {
 	if d == nil {
 		return ""
 	}
-	if n := d.PtName(typ, value); n != "" {
+	if n := d.PtNameFor(proto, typ, value); n != "" {
 		return n
 	}
-	if proto == "101" {
-		return d.PtName("para", value) // 101：经参数转发表映射（近似 follow101Transfer）
+	if strings.Contains(proto, "101") {
+		return d.PtNameFor(proto, "para", value) // 101：经参数转发表映射（近似 follow101Transfer）
 	}
 	return ""
 }

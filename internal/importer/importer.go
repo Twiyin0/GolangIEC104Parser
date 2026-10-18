@@ -111,20 +111,8 @@ func parseHexRun(line string) []protocol.Frame {
 		return nil
 	}
 	var out []protocol.Frame
-	switch protocol.Detect(buf) {
-	case "101":
-		out = protocol.ParseStream("101", buf)
-	case "104":
-		out = protocol.ParseStream("104", buf)
-	default:
-		f104 := protocol.ParseStream("104", buf)
-		f101 := protocol.ParseStream("101", buf)
-		if len(f101) > len(f104) {
-			out = f101
-		} else {
-			out = f104
-		}
-	}
+	// 自适应：优先 Detect（含 101 FT1.2 校验），其次比较两种切帧数量。
+	out = protocol.ParseBest(buf)
 	if len(out) == 0 {
 		if f, err := protocol.ParseAuto(buf); err == nil {
 			out = []protocol.Frame{f}

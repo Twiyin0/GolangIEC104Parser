@@ -2,21 +2,52 @@ package pointdb
 
 import "strings"
 
+// switchMaps 某一协议、某一“选定具体表”下的转发映射。
+type switchMaps struct {
+	yx, yc, yk, en map[int]string
+}
+
 // SetYCBase 设置遥测转发点表基址并重建映射（默认 0x4000）。
 func (d *DB) SetYCBase(base int) {
 	if base <= 0 {
 		base = TransferBaseYC
 	}
 	d.YCBase = base
-	d.RebuildMaps(d.CurTable)
+	d.BaseYC = base
+	d.rebuildSwitches()
 }
 
-// RebuildMaps 切换点表模式（tableName="" 为全部模式；具体表名为切换模式）。
-// 转发点表规则：选定具体表（TableName 非 NULL 且非"全点表"）时，
-// 信息体地址 = 基值 + SwitchPoint（遥信 0x0000 / 遥测 0x4000 / 遥控 0x6000 / 电能量 0x6400），
-// 点名为 SwitchName。
+// RebuildMaps 兼容旧接口：同时把 101/104 两个协议切换到同一表模式
+// （tableName="" 或 "全点表" 为全部模式；具体表名为切换模式）。
 func (d *DB) RebuildMaps(tableName string) {
-	d.CurTable = strings.TrimSpace(tableName)
+	name := strings.TrimSpace(tableName)
+	d.CurTable = name
+	d.CurTable101 = name
+	d.CurTable104 = name
+	d.rebuildShared()
+	d.rebuildSwitches()
+}
+
+// RebuildMapsFor 只切换指定协议（"101"/"104"）的点表模式，另一个协议保持不变。
+func (d *DB) RebuildMapsFor(proto, tableName string) {
+	name := strings.TrimSpace(tableName)
+	if normProto(proto) == "101" {
+		d.CurTable101 = name
+	} else {
+		d.CurTable104 = name
+	}
+	d.CurTable = name // 兼容旧字段：记录最近一次选择
+	if d.allYc == nil {
+		d.rebuildShared()
+	}
+	d.rebuildSwitches()
+}
+
+// SetTable 同 RebuildMapsFor，语义化别名。
+func (d *DB) SetTable(proto, tableName string) { d.RebuildMapsFor(proto, tableName) }
+
+// rebuildShared 重建与协议无关的全点表映射（普通表名 > 无表名 > 全点表）。
+func (d *DB) rebuildShared() {
 	if d.BaseYC == 0 {
 		d.BaseYC = BaseYC
 	}
@@ -25,10 +56,6 @@ func (d *DB) RebuildMaps(tableName string) {
 	d.allYx = buildAllMap(d.rawYx)
 	d.allYk = buildAllMap(d.rawYk)
 	d.allEn = buildAllMap(d.rawEn)
-	d.switchYx = buildSwitchMap(d.rawYx, d.CurTable, d.BaseYX) // 遥信：0x0000 + SwitchPoint
-	d.switchYc = buildSwitchMap(d.rawYc, d.CurTable, d.BaseYC) // 遥测：0x4000 + SwitchPoint
-	d.switchYk = buildSwitchMap(d.rawYk, d.CurTable, d.BaseYK) // 遥控：0x6000 + SwitchPoint
-	d.switchEn = buildSwitchMap(d.rawEn, d.CurTable, d.BaseEN) // 电能量：0x6400 + SwitchPoint
 	if d.paraMap == nil {
 		m := map[int]string{}
 		for _, p := range d.rawPara {
@@ -41,6 +68,29 @@ func (d *DB) RebuildMaps(tableName string) {
 	if d.paramMap == nil {
 		d.rebuildParamMap()
 	}
+}
+
+// rebuildSwitches 按 101/104 各自当前选定表重建切换映射。
+func (d *DB) rebuildSwitches() {
+	d.sw101 = d.buildSwitchFor(d.CurTable101)
+	d.sw104 = d.buildSwitchFor(d.CurTable104)
+}
+
+func (d *DB) buildSwitchFor(table string) switchMaps {
+	return switchMaps{
+		yx: buildSwitchMap(d.rawYx, table, d.BaseYX), // 遥信：0x0000 + SwitchPoint
+		yc: buildSwitchMap(d.rawYc, table, d.BaseYC), // 遥测：0x4000 + SwitchPoint
+		yk: buildSwitchMap(d.rawYk, table, d.BaseYK), // 遥控：0x6000 + SwitchPoint
+		en: buildSwitchMap(d.rawEn, table, d.BaseEN), // 电能量：0x6400 + SwitchPoint
+	}
+}
+
+// normProto 归一化协议标识：含 "101" 视为 101，其余（含空串）按 104 处理。
+func normProto(proto string) string {
+	if strings.Contains(proto, "101") {
+		return "101"
+	}
+	return "104"
 }
 
 // buildAllMap 全点表映射：普通表名 > 无表名 > "全点表"（后者覆盖，与 db.ts 一致）。
@@ -95,18 +145,23 @@ func buildSwitchMap(rows []Row, active string, base int) map[int]string {
 	return m
 }
 
-// PtName 查询点名（typ: yx/yc/yk/en/para）。查不到返回 ""。
-func (d *DB) PtName(typ string, value int) string {
+// PtNameFor 按协议查询点名（typ: yx/yc/yk/en/para；proto: "101"/"104"）。
+// 101 与 104 各自使用独立选择的点表模式；查不到返回 ""。
+func (d *DB) PtNameFor(proto, typ string, value int) string {
 	if d == nil || value < 0 {
 		return ""
 	}
-	useAll := d.CurTable == "" || d.CurTable == FullTableName
+	sm, cur := d.sw104, d.CurTable104
+	if normProto(proto) == "101" {
+		sm, cur = d.sw101, d.CurTable101
+	}
+	useAll := cur == "" || cur == FullTableName
 	switch typ {
 	case "yx":
 		if useAll {
 			return d.allYx[value]
 		}
-		if n, ok := d.switchYx[value]; ok && n != "" {
+		if n, ok := sm.yx[value]; ok && n != "" {
 			return n
 		}
 		return d.allYx[value]
@@ -114,7 +169,7 @@ func (d *DB) PtName(typ string, value int) string {
 		if useAll {
 			return d.allYc[value]
 		}
-		if n, ok := d.switchYc[value]; ok && n != "" {
+		if n, ok := sm.yc[value]; ok && n != "" {
 			return n
 		}
 		return d.allYc[value]
@@ -122,7 +177,7 @@ func (d *DB) PtName(typ string, value int) string {
 		if useAll {
 			return d.allYk[value]
 		}
-		if n, ok := d.switchYk[value]; ok && n != "" {
+		if n, ok := sm.yk[value]; ok && n != "" {
 			return n
 		}
 		return d.allYk[value]
@@ -130,7 +185,7 @@ func (d *DB) PtName(typ string, value int) string {
 		if useAll {
 			return d.allEn[value]
 		}
-		if n, ok := d.switchEn[value]; ok && n != "" {
+		if n, ok := sm.en[value]; ok && n != "" {
 			return n
 		}
 		return d.allEn[value]
@@ -143,3 +198,6 @@ func (d *DB) PtName(typ string, value int) string {
 	}
 	return ""
 }
+
+// PtName 兼容旧接口：默认按 104 协议查询。
+func (d *DB) PtName(typ string, value int) string { return d.PtNameFor("104", typ, value) }

@@ -9,7 +9,6 @@ import (
 	"iec104rt/internal/protocol/iec104"
 )
 
-
 // TestParsePipeline 解析管线：抓包线程投递原始报文 → 工作协程并行解析 → 按序回调产出。
 func TestParsePipeline(t *testing.T) {
 	got := make(chan protocol.Frame, 4)
@@ -47,6 +46,37 @@ func TestParsePipeline(t *testing.T) {
 	}
 	if e.DroppedFrames() != 0 {
 		t.Fatalf("不应有丢弃，实际 %d", e.DroppedFrames())
+	}
+}
+
+// TestFeed101OverTCP 网口流里透传 101 可变帧时，不能按 104 截断后误判为 104。
+func TestFeed101OverTCP(t *testing.T) {
+	body := []byte{0xF3, 0x01, 0x00, 0x0D, 0x01, 0x14, 0x00, 0x01, 0x00, 0x00, 0x80, 0x3F}
+	cs := 0
+	for _, b := range body {
+		cs = (cs + int(b)) & 0xFF
+	}
+	frame := append([]byte{0x68, byte(len(body)), byte(len(body)), 0x68}, body...)
+	frame = append(frame, byte(cs), 0x16)
+
+	got := make(chan protocol.Frame, 2)
+	e := &Engine{
+		cfg:     Config{TerminalIP: "192.168.1.101", TerminalPort: 2404, ParseWorkers: 2, ParseQueueSize: 8},
+		onFrame: func(f protocol.Frame) { got <- f },
+		pairs:   map[string]*connState{},
+		streams: map[string][]byte{},
+	}
+	e.startWorkers()
+	defer e.stopWorkers()
+
+	e.feed(testPkt("192.168.1.101", 2404, "192.168.1.10", 5000, flagACK, frame), "2026-10-18 17:00:00.000")
+	select {
+	case f := <-got:
+		if f.Proto != "101" || f.Ti != 13 {
+			t.Fatalf("101 透传帧应解析为 101/TI13，实际 proto=%q ti=%d type=%q", f.Proto, f.Ti, f.Type)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("101 透传帧未产出（超时）")
 	}
 }
 
@@ -149,4 +179,3 @@ func TestParsePipelineQueueFull(t *testing.T) {
 		}
 	}
 }
-

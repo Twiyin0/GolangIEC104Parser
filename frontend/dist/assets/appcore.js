@@ -49,8 +49,9 @@ const AppCore = {
       staticFrames: [],
       importedFrames: [],
       filterCat: "",
-      dbInfo: { ok: false, detail: "", tableNames: [], curTable: "", paramTable: "", hasGwParam: false, hasNwParam: false },
-      dbTable: "__all__",
+      dbInfo: { ok: false, detail: "", tableNames: [], curTable: "", curTable101: "", curTable104: "", paramTable: "", hasGwParam: false, hasNwParam: false },
+      dbTable101: "__all__",
+      dbTable104: "__all__",
       dbParamTable: "",
       userReset: false, // 用户主动清空标记（用于会话重置自愈提示）
       // 搜索与筛选系统

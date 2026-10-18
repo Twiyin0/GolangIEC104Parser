@@ -93,12 +93,13 @@ func (e *Engine) feed(p *TCPPacket, capTime string) {
 	if len(buf) > 262144 { // 缓冲上限，防错位数据堆积
 		buf = buf[len(buf)-131072:]
 	}
-	raws, rest := protocol.Extract104(buf)
+	raws, rest := protocol.ExtractAuto(buf)
 	e.streams[key] = rest
 	e.mu.Unlock()
 
 	for _, raw := range raws {
-		if len(raw) >= 6 {
+		// 仅 104 帧用控制字节更新 STARTDT/STOPDT 状态；101 帧（透传到 TCP）跳过。
+		if len(raw) >= 6 && protocol.Detect(raw) == "104" {
 			e.updateApp(raw[2]) // 应用层状态：仅读一个字节，开销极小
 		}
 		e.enqueue(raw, capTime, dir) // 解析交给工作协程（不阻塞抓包循环）
