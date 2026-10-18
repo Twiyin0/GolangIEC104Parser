@@ -57,6 +57,26 @@ setInterval(() => {
     }
   });
   vm.api().GetMasterPort().then((p) => { if (p > 0) vm.masterPort = p; });
+  // 文件传输未完成：持续刷新当前选中项，传输完成后自动显示解析结果并停止轮询
+  const sel = vm.selected;
+  const fp = sel && sel.parsed && sel.parsed.fileParse;
+  if (sel && sel.parsed && sel.parsed.fileKey && sel.parsed.fileKey.indexOf("210:") === 0 &&
+      fp && fp.complete === false && vm.view === "realtime" && vm.source === "realtime") {
+    vm.api().GetFrame(sel.id).then((f) => {
+      if (!f || !f.type || !vm.selected || vm.selected.id !== sel.id) return;
+      const nf = f.parsed && f.parsed.fileParse;
+      // 没有新分段且仍在传输：不重复替换，避免详情每秒闪烁/滚动跳回顶部
+      if (nf && nf.complete === false && nf.bytes === fp.bytes) return;
+      if (nf && nf.complete && fp.complete === false) {
+        vm.showToast("文件" + (nf.fileName ? " " + nf.fileName : "") +
+          " 传输完成，已解析 " + (nf.rows ? nf.rows.length : 0) + " 条记录");
+      }
+      const pane = document.querySelector(".detailpane");
+      const top = pane ? pane.scrollTop : 0;
+      vm.selected = f;
+      Vue.nextTick(() => { if (pane) pane.scrollTop = top; });
+    }).catch(() => {});
+  }
 }, 1000);
 
 // 初始化：配置 / 主题 / Npcap 信息
@@ -71,6 +91,10 @@ setInterval(() => {
     vm.applyThemeNow();
   }).catch((e) => vm.showToast(e.message || e, true));
   api.PcapInfo().then((s) => (vm.pcapInfo = s));
+  // 未安装 Npcap：弹窗引导安装（网口旁听依赖 Npcap 驱动）
+  api.HasNpcap().then((ok) => {
+    if (!ok) vm.showNpcapGuide = true;
+  }).catch(() => {});
   api.IsRunning().then((r) => (vm.running = !!r));
   vm.pollOnce();
 })();

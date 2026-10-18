@@ -49,12 +49,9 @@ func parseMSG(text string) Result {
 		}
 		rows = append(rows, row)
 	}
-	cols := header
-	if cols == nil {
-		cols = make([]string, 0, maxCols)
-		for i := 0; i < maxCols; i++ {
-			cols = append(cols, colName(nil, i))
-		}
+	cols := make([]string, 0, maxCols)
+	for i := 0; i < maxCols; i++ {
+		cols = append(cols, colName(header, i))
 	}
 	note := "分隔符 " + delimName
 	if header != nil {
@@ -68,7 +65,7 @@ func parseMSG(text string) Result {
 func colName(header []string, i int) string {
 	if i < len(header) {
 		if h := strings.TrimSpace(header[i]); h != "" {
-			return h
+			return cnKey(h)
 		}
 	}
 	return "列" + itoa(i+1)
@@ -181,7 +178,7 @@ func parseKeyValue(lines []string) Result {
 			return Result{}
 		}
 		parts := strings.SplitN(ln, sep, 2)
-		k := strings.TrimSpace(parts[0])
+		k := cnKey(strings.TrimSpace(parts[0]))
 		v := strings.TrimSpace(parts[1])
 		if k == "" {
 			continue

@@ -56,7 +56,7 @@ func ParseFileService210(ioaLen int, r *common.Reader, cotRaw, addr int) (M, err
 		if r.Left() < 5 {
 			return nil, fmt.Errorf("目录召唤报文长度不足")
 		}
-		directoryId := r.U32()
+		directoryId := readU32LE(r)
 		dirNameLen := r.U8()
 		if r.Left() < dirNameLen+1+7+7 {
 			return nil, fmt.Errorf("目录召唤目录名/时间长度不足")
@@ -86,7 +86,7 @@ func ParseFileService210(ioaLen int, r *common.Reader, cotRaw, addr int) (M, err
 			return nil, fmt.Errorf("目录召唤确认长度不足")
 		}
 		resultCode := r.U8()
-		directoryId := r.U32()
+		directoryId := readU32LE(r)
 		hasMore := r.U8()
 		fileCount := r.U8()
 		entries := []M{}
@@ -100,7 +100,7 @@ func ParseFileService210(ioaLen int, r *common.Reader, cotRaw, addr int) (M, err
 			}
 			fileName := r.Ascii(nameLen)
 			fileAttr := r.U8()
-			fileSize := r.U32()
+			fileSize := readU32LE(r)
 			fileTime, _ := r.CP56()
 			r.Skip(7)
 			entries = append(entries, M{"fileName": fileName, "fileAttr": fileAttr, "fileSize": fileSize, "fileTime": fileTime})

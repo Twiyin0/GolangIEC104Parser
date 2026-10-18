@@ -56,6 +56,14 @@ const AppActions2 = {
     }).catch((e) => this.showToast(e.message || e, true));
   },
 
+  // ── Npcap 缺失引导（网口旁听依赖 Npcap 驱动）──
+  npcapDownload() {
+    this.api().OpenNpcapDownload().then(() => {
+      this.showNpcapGuide = false;
+      this.showToast("已打开 Npcap 下载页；安装完成后请重启本程序");
+    }).catch((e) => this.showToast(((e && e.message) || e), true));
+  },
+
   // ── 主站端口扫描（需求第 7 条：默认本机，端口自动识别）──
   detectMaster() {
     this.api().DetectMasterPortManually().then((p) => {

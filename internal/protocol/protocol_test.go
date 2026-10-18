@@ -151,3 +151,103 @@ func TestParse104Fault(t *testing.T) {
 		t.Fatalf("fault yc value wrong: %#v", yc[0])
 	}
 }
+
+func fileServiceNum(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case uint8:
+		return int(n)
+	case uint16:
+		return int(n)
+	case uint32:
+		return int(n)
+	case uint64:
+		return int(n)
+	}
+	return -1
+}
+
+// 规范 7.6.3.2 d) 读文件数据传输确认：fileId(4,LE)+segmentNo(4,LE)+result(1)。
+// 取自现场报文：fileId=0，segmentNo=56400，result=0。
+func TestParseFileService210DataConfirm(t *testing.T) {
+	f, err := ParseHexAuto("68 18 0C 00 8C 04 D2 81 05 00 01 00 00 00 00 02 06 00 00 00 00 50 DC 00 00 00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := f.Parsed
+	if f.Type != "file_service" || p["service"] != "F_FR_NA_1" {
+		t.Fatalf("file service parse failed: %#v", p)
+	}
+	if fileServiceNum(p["op"]) != 6 {
+		t.Fatalf("op = %v（应 6 读文件数据传输确认）", p["op"])
+	}
+	if fileServiceNum(p["fileId"]) != 0 {
+		t.Fatalf("fileId = %v（规范预留恒 0）", p["fileId"])
+	}
+	if fileServiceNum(p["segmentNo"]) != 56400 {
+		t.Fatalf("segmentNo = %v（应为 56400 偏移）", p["segmentNo"])
+	}
+	if fileServiceNum(p["resultCode"]) != 0 {
+		t.Fatalf("resultCode = %v（应 0 无后续）", p["resultCode"])
+	}
+}
+
+// 规范 7.6.3.2 c) 读文件数据传输：fileId(4)+segmentNo(4)+后续标志(1)+data+checksum(1)。
+// 旧实现误把首字节当文件名长度，导致 fileId 错位、出现 0x08000000 等假文件号。
+func TestParseFileService210DataLE(t *testing.T) {
+	asdu := []byte{
+		0xD2, 0x01, 0x05, 0x00, 0x01, 0x00, // TI/VSQ/COT/CA
+		0x00, 0x00, 0x00, // IOA=0
+		0x02,                   // 附加数据包类型=文件传输
+		0x05,                   // 读文件数据传输
+		0x00, 0x00, 0x00, 0x00, // fileId=0
+		0x00, 0x00, 0x00, 0x00, // segmentNo=0
+		0x01,             // 后续标志=有后续
+		0x61, 0x62, 0x63, // data "abc"
+		0x26, // checksum = 0x61+0x62+0x63 的低字节
+	}
+	f, err := ParseAuto(build104(ctrlI, asdu))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := f.Parsed
+	if fileServiceNum(p["op"]) != 5 {
+		t.Fatalf("op = %v（应 5 读文件数据传输）", p["op"])
+	}
+	if fileServiceNum(p["fileId"]) != 0 || fileServiceNum(p["segmentNo"]) != 0 {
+		t.Fatalf("fileId/segmentNo 错位: %#v", p)
+	}
+	if fileServiceNum(p["contFlag"]) != 1 || fileServiceNum(p["dataLen"]) != 3 {
+		t.Fatalf("后续标志/数据长度错误: %#v", p)
+	}
+	if p["dataHex"] != "61 62 63" || fileServiceNum(p["checksum"]) != 0x26 || p["checksumValid"] != true {
+		t.Fatalf("数据/校验码解析错误: %#v", p)
+	}
+	if _, ok := p["fileName"]; ok {
+		t.Fatalf("规范 op=5 不含文件名，不应解析出 fileName: %#v", p)
+	}
+}
+
+// 规范 7.6.3.2 b) 读文件激活确认：文件名 + fileId(4,LE) + 文件大小(4,LE)。
+func TestParseFileService210ActivateLE(t *testing.T) {
+	asdu := []byte{
+		0xD2, 0x01, 0x07, 0x00, 0x01, 0x00, // TI/VSQ/COT=7/CA
+		0x00, 0x00, 0x00, // IOA=0
+		0x02,       // 文件传输
+		0x04,       // 读文件激活确认
+		0x00,       // 成功
+		0x07,       // 文件名长度
+		0x73, 0x6F, 0x65, 0x2E, 0x78, 0x6D, 0x6C, // soe.xml
+		0x00, 0x00, 0x00, 0x00, // fileId=0
+		0x5D, 0xDC, 0x00, 0x00, // fileSize=56413，低字节在前
+	}
+	f, err := ParseAuto(build104(ctrlI, asdu))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := f.Parsed
+	if p["fileName"] != "soe.xml" || fileServiceNum(p["fileSize"]) != 56413 {
+		t.Fatalf("激活确认文件名/大小解析错误: %#v", p)
+	}
+}

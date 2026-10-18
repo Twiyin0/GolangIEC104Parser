@@ -185,3 +185,13 @@ input, textarea, select, option, [contenteditable="true"], [contenteditable=""] 
   max-width: 70%; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
 }
 .toast.err { border-color: var(--err); color: var(--err); }
+
+/* 文件传输原始报文折叠行 */
+tr.filegroup > td {
+  background: var(--bg3); color: var(--fg2); cursor: pointer; user-select: none;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+tr.filegroup:hover > td { color: var(--fg); }
+.fg-arrow { display: inline-block; width: 14px; color: var(--accent); }
+.fg-tip { color: var(--fg2); opacity: .7; font-size: 11px; margin-left: 8px; }
+tr.childrow > td:first-child { padding-left: 22px; }

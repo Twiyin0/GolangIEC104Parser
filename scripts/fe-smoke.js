@@ -196,6 +196,25 @@ assert(bh.indexOf("未能自动识别") >= 0, "自动识别失败应明确提示
 assert(bh.indexOf("请手动选择") >= 0, "应提示手动选择格式");
 assert(bh.indexOf('data-filefmt="msg"') >= 0, "失败时仍应提供手动格式按钮");
 
+// COMTRADE 波形：cfg+dat 完成后应渲染 SVG 波形图与图例
+const waveFrame = {
+  id: 12, parsed: {
+    type: "file_service", service: "F_FR_NA_1", op: 5, fileKey: "210:name:test.cfg",
+    fileParse: {
+      format: "comtrade", kind: "wave", kindName: "波形文件", fileName: "test.cfg",
+      bytes: 100, size: 100, complete: true,
+      chart: {
+        station: "TEST", device: "DEV", startTime: "01/01/2026,00:00:00",
+        times: [0, 0.001, 0.002], duration: 0.002,
+        channels: [{ name: "IA", unit: "A", min: 0, max: 1000, data: [0, 1000, -1000] }],
+        digital: [{ name: "TRIP", data: [0, 1, 0] }],
+      },
+    },
+  },
+};
+const wh = frameDetailHTML(waveFrame);
+assert(wh.indexOf("wavechart") >= 0 && wh.indexOf("IA") >= 0, "COMTRADE 波形图应渲染");
+
 // 定值参数渲染：地址默认十六进制 + 点名 + 参数类型 + 比例（国网/南网定值表）
 const paramFrame = {
   id: 11, time: "2026-10-17 17:40:00.000", dir: "M→T", proto: "104",

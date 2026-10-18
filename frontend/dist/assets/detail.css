@@ -7,6 +7,16 @@
   background: var(--thead-bg); color: var(--thead-fg);
   font-weight: 600; text-align: left; padding: 6px 8px; white-space: nowrap;
 }
+
+/* 表头右边缘：拖动调整列宽（colresize.js） */
+.dtable th { position: relative; }
+.dtable th, .msgtable thead th { padding-right: 12px; }
+.dtable th::after, .msgtable thead th::after {
+  content: ""; position: absolute; top: 0; right: 0; width: 7px; height: 100%;
+  cursor: col-resize; background: transparent;
+}
+.dtable th:hover::after, .msgtable thead th:hover::after { background: var(--accent); opacity: .35; }
+body.colresizing, body.colresizing * { cursor: col-resize !important; user-select: none !important; }
 .msgtable tbody td { padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msgtable tbody tr { cursor: pointer; }
 .msgtable tbody tr:nth-child(odd) { background: var(--row-odd); }
@@ -132,3 +142,14 @@ body.light .msgtable tbody tr.hit { background: rgba(230, 180, 80, .40) !importa
 }
 .modal .hint { color: var(--fg2); font-size: 11px; margin: 4px 0 4px 120px; }
 .modalfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* COMTRADE 波形图 */
+.wavebox { margin: 10px 0 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.wv-title { color: var(--accent); font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.wv-title .wv-time { color: var(--fg2); font-weight: 400; font-size: 11px; margin-left: 8px; }
+.wavechart { display: block; width: 100%; height: auto; color: var(--fg2); }
+.wavelegend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 2px 2px; font-size: 12px; color: var(--fg); }
+.wv-item { white-space: nowrap; }
+.wv-item i { display: inline-block; width: 11px; height: 3px; margin-right: 5px; vertical-align: middle; }
+.wv-item small { color: var(--fg2); opacity: .75; margin-left: 5px; }
+.wv-note { color: var(--fg2); opacity: .8; font-size: 11px; margin-top: 3px; }

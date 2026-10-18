@@ -6,6 +6,10 @@ package fileparse
 
 import (
 	"strings"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 // Record 一条记录（列名 → 值）。
@@ -16,14 +20,21 @@ type NameResolver func(kind string, addr int) string
 
 // Result 文件解析结果。
 type Result struct {
-	Format   string   `json:"format"`   // xml | msg | ""（未能识别）
-	Kind     string   `json:"kind"`     // soe | fault | control | event | unknown
-	KindName string   `json:"kindName"` // SOE记录 / 故障事件 / 遥控记录 / 事件记录 / 未知记录
-	Columns  []string `json:"columns"`
-	Rows     []Record `json:"rows"`
-	Note     string   `json:"note"`  // 识别/统计说明
-	Error    string   `json:"error"` // 自动解析失败原因（提示用户手动选择格式）
-	HasNames bool     `json:"hasNames"`
+	Format   string     `json:"format"`   // xml | msg | cfg | dat
+	Kind     string     `json:"kind"`     // soe | fault | control | event | extreme | fixed | flowrev | wave | unknown
+	KindName string     `json:"kindName"` // 中文记录类型
+	Columns  []string   `json:"columns"`
+	Rows     []Record   `json:"rows"`
+	Note     string     `json:"note"`  // 识别/统计说明
+	Error    string     `json:"error"` // 自动解析失败原因（提示用户手动选择格式）
+	HasNames bool       `json:"hasNames"`
+	Chart    *WaveChart `json:"chart,omitempty"` // COMTRADE 波形
+
+	// 文件传输状态（用于详情展示与"等待传输完成后再解析"）
+	FileName string `json:"fileName"`
+	Bytes    int    `json:"bytes"`
+	Size     int    `json:"size"`
+	Complete bool   `json:"complete"`
 }
 
 var kindNames = map[string]string{
@@ -31,6 +42,10 @@ var kindNames = map[string]string{
 	"fault":   "故障事件",
 	"control": "遥控记录",
 	"event":   "事件记录",
+	"extreme": "极值记录",
+	"fixed":   "定点记录",
+	"wave":    "波形文件",
+	"flowrev": "潮流反向冻结值",
 	"unknown": "未知记录",
 }
 
@@ -40,13 +55,13 @@ func Parse(data []byte, forced string, resolve NameResolver) Result {
 	res := Result{}
 	switch strings.ToLower(strings.TrimSpace(forced)) {
 	case "xml":
-		res = parseXML(text)
+		res = parseXML(text, resolve)
 		res.Format = "xml"
 	case "msg":
 		res = parseMSG(text)
 		res.Format = "msg"
 	default:
-		res = autoParse(text)
+		res = autoParse(text, resolve)
 	}
 	if res.Format == "" {
 		res.Format = strings.ToLower(strings.TrimSpace(forced))
@@ -59,6 +74,8 @@ func Parse(data []byte, forced string, resolve NameResolver) Result {
 		res.KindName = kindNames["unknown"]
 	}
 	applyNames(&res, resolve)
+	normalizeFileColumns(&res)
+	translateOperations(&res)
 	if len(res.Rows) == 0 && res.Error == "" {
 		res.Error = "未能从文件中解析出记录（可尝试手动指定 MSG 或 XML 格式）"
 	}
@@ -71,12 +88,12 @@ func Parse(data []byte, forced string, resolve NameResolver) Result {
 }
 
 // autoParse 自动识别：先 XML（以 < 开头或含 XML 声明），否则按 MSG 文本。
-func autoParse(text string) Result {
+func autoParse(text string, resolve NameResolver) Result {
 	trimmed := strings.TrimSpace(text)
 	looksXML := strings.HasPrefix(trimmed, "<?xml") || strings.HasPrefix(trimmed, "<")
 	if looksXML {
-		r := parseXML(text)
-		if len(r.Rows) > 0 {
+		r := parseXML(text, resolve)
+		if len(r.Rows) > 0 || r.Chart != nil {
 			r.Format = "xml"
 			r.Note = joinNote("自动识别为 XML 格式", r.Note)
 			return r
@@ -133,6 +150,11 @@ func classify(text string, columns []string) string {
 // applyNames 用点表解析记录中的点号/地址 → 点名。
 func applyNames(res *Result, resolve NameResolver) {
 	if resolve == nil || len(res.Rows) == 0 {
+		return
+	}
+	// 定点记录已在“遥测名称”列完成点名解析，行里的“地址”是十六进制展示值，
+	// 不能再按十进制地址二次解析，否则会追加多余的“点名”列或解析到错误点。
+	if res.Kind == "fixed" {
 		return
 	}
 	kind := res.Kind
@@ -233,6 +255,12 @@ func decodeText(data []byte) string {
 	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
 		data = data[3:]
 	}
+	// 国内工程文件常见 GBK/GB18030 编码：非法 UTF-8 时按 GB18030 解码（含 GBK 子集）
+	if !utf8.Valid(data) {
+		if s, _, err := transform.String(simplifiedchinese.GB18030.NewDecoder(), string(data)); err == nil {
+			return s
+		}
+	}
 	return string(data)
 }
 
@@ -279,4 +307,90 @@ func containsStr(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// normalizeFileColumns 统一历史文件表头顺序（即使走的是通用 MSG/XML 解析）。
+func normalizeFileColumns(res *Result) {
+	var order []string
+	switch res.Kind {
+	case "soe":
+		order = []string{"信息体地址", "点名", "值", "时间"}
+	case "control":
+		order = []string{"信息体地址", "点名", "操作", "命令状态", "时间"}
+		// 通用表格可能把命令状态列命名为“命令/值”，统一成“命令状态”
+		for _, row := range res.Rows {
+			if _, ok := row["命令状态"]; !ok {
+				if v, ok := row["命令"]; ok {
+					row["命令状态"] = v
+					delete(row, "命令")
+				} else if v, ok := row["值"]; ok {
+					row["命令状态"] = v
+					delete(row, "值")
+				}
+			}
+		}
+		for i, c := range res.Columns {
+			if c == "命令" || c == "值" {
+				res.Columns[i] = "命令状态"
+			}
+		}
+	default:
+		return
+	}
+	have := map[string]bool{}
+	for _, c := range res.Columns {
+		have[c] = true
+	}
+	out := make([]string, 0, len(res.Columns))
+	used := map[string]bool{}
+	for _, c := range order {
+		if have[c] {
+			out = append(out, c)
+			used[c] = true
+		}
+	}
+	for _, c := range res.Columns {
+		if !used[c] {
+			out = append(out, c)
+		}
+	}
+	res.Columns = out
+}
+func translateOperations(res *Result) {
+	for _, row := range res.Rows {
+		if v, ok := row["操作"].(string); ok {
+			row["操作"] = operationCN(v)
+		}
+	}
+}
+
+// cnKey 把文件中的常见英文标识转成中文表头，避免详情出现 ioa/tm/val 等原始字段名。
+func cnKey(k string) string {
+	switch strings.ToLower(strings.TrimSpace(k)) {
+	case "ioa", "infoobjaddr", "objaddr", "address", "addr":
+		return "信息体地址"
+	case "tm", "time", "timestamp":
+		return "时间"
+	case "val", "value":
+		return "值"
+	case "cmd", "operation", "op":
+		return "操作"
+	case "max":
+		return "最大值"
+	case "min":
+		return "最小值"
+	case "max_tm", "maxtm":
+		return "最大值时间"
+	case "min_tm", "mintm":
+		return "最小值时间"
+	case "type":
+		return "类型"
+	case "unit", "uu":
+		return "单位"
+	case "name", "ch_id":
+		return "名称"
+	case "sect":
+		return "节号"
+	}
+	return k
 }

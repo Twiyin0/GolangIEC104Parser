@@ -10,6 +10,7 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"iec104rt/internal/capture"
+	"iec104rt/internal/capture/wpcap"
 	"iec104rt/internal/config"
 	"iec104rt/internal/fileparse"
 	"iec104rt/internal/pointdb"
@@ -40,6 +41,9 @@ type App struct {
 
 	muFile   sync.Mutex
 	files    map[string]*fileAcc    // 文件服务组包（TI=210 分段 / TI=125 段落）
+	fileNames map[int]string        // TI=210 fileId → 文件名（目录/激活/传输帧学习）
+	currentFile210 string           // 当前 TI=210 传输文件名（op=5/6 规范不带文件名）
+	currentFileSize210 int          // 当前 TI=210 文件大小（激活确认给出）
 	fileCache map[string]fileparse.Result // 文件解析结果缓存（key|格式|点表版本）
 	dbRev    int                    // 点表版本号（变更时使文件解析缓存失效）
 }
@@ -48,6 +52,7 @@ type App struct {
 func NewApp() *App {
 	a := &App{cfg: config.Default(), sess: session.New(50000),
 		files:     map[string]*fileAcc{},
+		fileNames: map[int]string{},
 		fileCache: map[string]fileparse.Result{},
 	}
 	if p, err := config.Path(); err == nil {
@@ -212,6 +217,18 @@ func (a *App) ListSerialPorts() []string {
 
 // PcapInfo Npcap 版本信息。
 func (a *App) PcapInfo() string { return capture.PcapVersion() }
+
+// HasNpcap 是否检测到 Npcap 运行时（wpcap.dll 已加载）。
+func (a *App) HasNpcap() bool { return wpcap.Available() }
+
+// OpenNpcapDownload 打开 Npcap 官方下载页（免费版由用户自行安装）。
+func (a *App) OpenNpcapDownload() error {
+	if a.ctx == nil {
+		return fmt.Errorf("应用未就绪")
+	}
+	wruntime.BrowserOpenURL(a.ctx, "https://npcap.com/#download")
+	return nil
+}
 
 // ── 监听控制 ──────────────────────────────────────────────────────────
 

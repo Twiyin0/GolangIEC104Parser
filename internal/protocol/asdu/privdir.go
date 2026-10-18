@@ -35,8 +35,8 @@ func parseFileService210Op34(r *common.Reader, op int, result M) {
 			return
 		}
 		fileName := r.Ascii(fileNameLen)
-		fileId := r.U32()
-		fileSize := r.U32()
+		fileId := readU32LE(r)
+		fileSize := readU32LE(r)
 		rd, ok := readActivateResultMap[resultCode]
 		if !ok {
 			rd = fmt.Sprintf("未知(%d)", resultCode)
@@ -47,24 +47,25 @@ func parseFileService210Op34(r *common.Reader, op int, result M) {
 		result["fileName"] = fileName
 		result["fileId"] = fileId
 		result["fileSize"] = fileSize
-	case 5: // 读文件数据传输：fileNameLen(1)+fileName(N)+fileId(4)+segmentNo(4)+checksum(1)+data
-		if r.Left() < 1 {
+	case 5, 9: // 读/写文件数据传输：fileId(4,LE)+segmentNo(4,LE)+后续标志(1)+data+checksum(1)
+		if r.Left() < 10 {
 			return
 		}
-		fileNameLen := r.U8()
-		if r.Left() < fileNameLen+9 {
-			return
-		}
-		fileName := r.Ascii(fileNameLen)
-		fileId := r.U32()
-		segmentNo := r.U32()
+		fileId := readU32LE(r)
+		segmentNo := readU32LE(r)
+		contFlag := r.U8()
+		dataLen := r.Left() - 1
+		fileData := r.Slice(dataLen)
 		checksum := r.U8()
-		fileData := r.Slice(r.Left())
 		csCalc := common.Sum8(fileData)
-		result["fileNameLen"] = fileNameLen
-		result["fileName"] = fileName
+		contName := "有后续"
+		if contFlag == 0 {
+			contName = "无后续"
+		}
 		result["fileId"] = fileId
 		result["segmentNo"] = segmentNo
+		result["contFlag"] = contFlag
+		result["contFlagName"] = contName
 		result["checksum"] = checksum
 		result["checksumHex"] = fmt.Sprintf("0x%02X", checksum)
 		result["dataLen"] = len(fileData)
@@ -72,12 +73,12 @@ func parseFileService210Op34(r *common.Reader, op int, result M) {
 		result["checksumCalc"] = csCalc
 		result["checksumCalcHex"] = fmt.Sprintf("0x%02X", csCalc)
 		result["checksumValid"] = csCalc == checksum
-	case 6, 10: // 文件数据传输确认：fileId(4)+segmentNo(4)+resultCode(1)
+	case 6, 10: // 文件数据传输确认：fileId(4,LE)+segmentNo(4,LE)+resultCode(1)
 		if r.Left() < 9 {
 			return
 		}
-		fileId := r.U32()
-		segmentNo := r.U32()
+		fileId := readU32LE(r)
+		segmentNo := readU32LE(r)
 		resultCode := r.U8()
 		resultMap := map[int]string{0: "无后续", 1: "有后续"}
 		if op == 10 {
@@ -101,8 +102,8 @@ func parseFileService210Op34(r *common.Reader, op int, result M) {
 		}
 		result["fileNameLen"] = fileNameLen
 		result["fileName"] = r.Ascii(fileNameLen)
-		result["fileId"] = r.U32()
-		result["fileSize"] = r.U32()
+		result["fileId"] = readU32LE(r)
+		result["fileSize"] = readU32LE(r)
 	case 8: // 写文件激活确认：resultCode(1)+fileNameLen(1)+fileName(N)+fileId(4)+fileSize(4)
 		if r.Left() < 2 {
 			return
@@ -120,8 +121,8 @@ func parseFileService210Op34(r *common.Reader, op int, result M) {
 		result["resultDesc"] = rd
 		result["fileNameLen"] = fileNameLen
 		result["fileName"] = r.Ascii(fileNameLen)
-		result["fileId"] = r.U32()
-		result["fileSize"] = r.U32()
+		result["fileId"] = readU32LE(r)
+		result["fileSize"] = readU32LE(r)
 	default:
 		result["rawHex"] = common.HexBytes(r.Slice(r.Left()))
 	}
@@ -201,6 +202,15 @@ func ParsePrivateFileDir(ioaLen int, r *common.Reader, cotRaw, addr int) (M, err
 	return M{"type": "file_service", "service": "PRIV_DIR", "desc": desc,
 		"subType": subType, "subTypeName": stn, "fileCount": fileCount, "files": files,
 		"cot": cotRaw, "addr": addr}, nil
+}
+
+// readU32LE 读取 4 字节小端无符号整数（文件服务中的目录 ID/文件 ID/大小/段号均为低字节在前）。
+func readU32LE(r *common.Reader) uint32 {
+	if r.Left() < 4 {
+		return 0
+	}
+	b := r.Slice(4)
+	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
 }
 
 func toUpper(s string) string {

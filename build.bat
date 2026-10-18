@@ -34,7 +34,7 @@ if errorlevel 1 (
     echo   全部测试通过
 )
 
-echo [4/6] 生成程序图标（logo.png -> icon.ico -> rsrc.syso，失败则使用默认图标）...
+echo [4/6] 生成程序图标（logo.png 到 icon.ico 到 rsrc.syso，失败则使用默认图标）...
 if not exist "build\windows" mkdir "build\windows"
 go run ./scripts/mkico -in "logo.png" -out "build\windows\icon.ico"
 if errorlevel 1 (

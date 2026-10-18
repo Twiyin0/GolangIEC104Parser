@@ -41,6 +41,10 @@ const AppCore = {
       devices: [],
       serialPorts: [],
       pcapInfo: "",
+      // 首次进入未检测到 Npcap → 弹窗引导安装（不提供降级后端）
+      showNpcapGuide: false,
+      // 文件传输原始报文折叠：key → true 表示已展开
+      expandedFileGroups: {},
       staticText: "",
       staticFrames: [],
       importedFrames: [],
@@ -92,6 +96,54 @@ const AppCore = {
         list = list.filter((f) => eng.matchFilter(f, this.filter));
       }
       return list;
+    },
+    // 列表渲染行：把同一文件的 TI=210 数据传输/确认原始报文折叠成一行（可展开）
+    // 搜索/筛选时展开为普通行，避免命中的报文被折叠隐藏。
+    listRows() {
+      if (this.filterActiveC) {
+        return this.displayFrames.map((r) => ({ id: "r:" + r.id, row: r }));
+      }
+      const out = [];
+      let group = null;
+      const flush = () => {
+        if (!group) return;
+        // 只有 1 帧时不折叠，避免小文件/单帧传输多一次点击
+        if (group.rows.length === 1) {
+          const only = group.rows[0];
+          out.push({ id: "r:" + only.id, row: only });
+          group = null;
+          return;
+        }
+        out.push(group);
+        if (this.expandedFileGroups[group.key]) {
+          for (const r of group.rows) out.push({ id: "c:" + r.id, row: r, child: true });
+        }
+        group = null;
+      };
+      for (const r of this.displayFrames) {
+        const p = r.parsed || {};
+        const isSeg = p.service === "F_FR_NA_1" && (p.op === 5 || p.op === 6 || p.op === 10);
+        const isS = p.format === "S";
+        // 链路 S 帧常夹在文件分段之间：归入当前文件组，避免把传输过程切成很多小组
+        if (isS && group) {
+          group.rows.push(r);
+          continue;
+        }
+        if (!isSeg) {
+          flush();
+          out.push({ id: "r:" + r.id, row: r });
+          continue;
+        }
+        const key = p.fileId > 0 ? "id:" + p.fileId : "name:" + (p.fileName || "");
+        if (!group || group.key !== key) {
+          flush();
+          group = { id: "g:" + key + ":" + r.id, group: true, key, rows: [], name: p.fileName || "", fileId: p.fileId || 0 };
+        }
+        group.rows.push(r);
+        if (p.fileName) group.name = p.fileName;
+      }
+      flush();
+      return out;
     },
     categories() {
       const set = {};
