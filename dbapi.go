@@ -8,6 +8,7 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"iec104rt/internal/config"
 	"iec104rt/internal/pointdb"
 	"iec104rt/internal/protocol"
 	"iec104rt/internal/protocol/common"
@@ -72,15 +73,23 @@ func (a *App) LoadPointDb(path string) (DbInfo, error) {
 	a.muPoint.Lock()
 	a.pointDB = d
 	a.muPoint.Unlock()
-	// 应用转发点表基值（遥信 0x0000/遥测 0x4000/遥控 0x6000/电能量 0x6400）与定值表选择
+	// 应用转发点表基值（101/104 各自独立）与定值表选择
 	a.mu.Lock()
 	pc := a.cfg.Parse
 	a.mu.Unlock()
-	d.SetBases(pc.YXTransferBase, pc.YCTransferBase, pc.YKTransferBase, pc.ENTransferBase)
+	a.applyBases(d, pc)
 	d.SetParamTable(pc.ParamTable)
 	a.bumpDBRev() // 点表变更 → 文件解析缓存失效（点名随之刷新）
 	a.emit("db", a.dbSnapshot())
 	return a.dbSnapshot(), nil
+}
+
+// applyBases 把 101/104 各自的转发基址下发到点表库。
+func (a *App) applyBases(d *pointdb.DB, pc config.ParseCfg) {
+	b101 := pc.BasesFor("101")
+	b104 := pc.BasesFor("104")
+	d.SetBasesFor("101", b101.YX, b101.YC, b101.YK, b101.EN)
+	d.SetBasesFor("104", b104.YX, b104.YC, b104.YK, b104.EN)
 }
 
 // DbSetTable 兼容旧接口：同时切换 101/104 点表模式（""=全部模式；具体表名=切换模式）。
@@ -90,8 +99,7 @@ func (a *App) DbSetTable(name string) (DbInfo, error) {
 	if a.pointDB == nil {
 		return DbInfo{TableNames: []string{}}, fmt.Errorf("未加载点表")
 	}
-	a.pointDB.SetBases(a.cfg.Parse.YXTransferBase, a.cfg.Parse.YCTransferBase,
-		a.cfg.Parse.YKTransferBase, a.cfg.Parse.ENTransferBase) // 应用最新基址配置
+	a.applyBases(a.pointDB, a.cfg.Parse) // 应用最新基址配置（101/104 各自独立）
 	a.pointDB.RebuildMaps(name)
 	info := dbInfoOf(a.pointDB)
 	a.bumpDBRev()
@@ -106,8 +114,7 @@ func (a *App) DbSetTableFor(proto, name string) (DbInfo, error) {
 	if a.pointDB == nil {
 		return DbInfo{TableNames: []string{}}, fmt.Errorf("未加载点表")
 	}
-	a.pointDB.SetBases(a.cfg.Parse.YXTransferBase, a.cfg.Parse.YCTransferBase,
-		a.cfg.Parse.YKTransferBase, a.cfg.Parse.ENTransferBase)
+	a.applyBases(a.pointDB, a.cfg.Parse)
 	a.pointDB.RebuildMapsFor(proto, name)
 	info := dbInfoOf(a.pointDB)
 	a.bumpDBRev()

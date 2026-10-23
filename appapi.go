@@ -180,13 +180,23 @@ func (a *App) ParseStatic(text string) ([]protocol.Frame, error) {
 	}
 	now := time.Now().Format("2006-01-02 15:04:05.000")
 	var out []protocol.Frame
+	var bad []string
+	lineNo := 0
 	for _, line := range strings.Split(text, "\n") {
+		lineNo++
 		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
 		if line == "" {
 			continue
 		}
 		buf, err := iec104.HexToBytes(line)
 		if err != nil || len(buf) == 0 {
+			continue
+		}
+		// 先按 L 判断是否少数据：101 可变帧需 L+6 字节，101 固定帧需 6 字节。
+		if chk := protocol.CheckFrame(buf); !chk.Complete {
+			if len(bad) < 8 {
+				bad = append(bad, fmt.Sprintf("第%d行：%s", lineNo, chk.Reason))
+			}
 			continue
 		}
 		// 优先按帧头/校验自适应；长度恰好为 104 时也要让 101 完整帧胜出
@@ -202,7 +212,17 @@ func (a *App) ParseStatic(text string) ([]protocol.Frame, error) {
 		out = append(out, got...)
 	}
 	if len(out) == 0 {
+		if len(bad) > 0 {
+			return nil, fmt.Errorf("报文不完整：%s", strings.Join(bad, "；"))
+		}
 		return nil, fmt.Errorf("未找到可解析的报文（请检查 HEX 格式）")
+	}
+	if len(bad) > 0 {
+		msg := "已跳过不完整帧：" + strings.Join(bad, "；")
+		out = append(out, protocol.Frame{
+			ID: int64(len(out) + 1), Time: now, Type: "error", Category: "错误", Summary: msg,
+			Parsed: map[string]any{"type": "error", "error": msg},
+		})
 	}
 	a.enrichFrames(out)
 	return out, nil

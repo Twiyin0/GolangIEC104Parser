@@ -36,19 +36,8 @@ func Detect(buf []byte) string {
 	if buf[0] == 0x68 {
 		// 101 可变帧特征：68 L L 68 …
 		if len(buf) >= 4 && buf[1] == buf[2] && buf[3] == 0x68 {
-			if len(buf) == int(buf[1])+2 { // 长度恰好等于 104 APDU 长度时更可能是 104
-				return "104"
-			}
-			total := int(buf[1]) + 6
-			if len(buf) >= total { // 完整帧用 FT1.2 校验确认
-				csCalc := 0
-				for i := 4; i < total-2; i++ {
-					csCalc = (csCalc + int(buf[i])) & 0xFF
-				}
-				if csCalc == int(buf[total-2]) {
-					return "101"
-				}
-			}
+			// 只要出现 101 帧头，就按 101 处理；长度不足由 CheckFrame 判定。
+			// 不能因为 len==L+2（104 的截断长度）就误判成 104。
 			return "101"
 		}
 		if len(buf) >= 2 {
@@ -56,6 +45,64 @@ func Detect(buf []byte) string {
 		}
 	}
 	return ""
+}
+
+// FrameCheck 报文长度完整性检查（用于静态/日志导入时判断是否少数据）。
+type FrameCheck struct {
+	Protocol string `json:"protocol"`
+	Expected int    `json:"expected"`
+	Actual   int    `json:"actual"`
+	Complete bool   `json:"complete"`
+	Reason   string `json:"reason"`
+}
+
+// CheckFrame 通过帧头/L 判断报文是否完整：
+//   - 101 固定帧：10 C A1 A2 CS 16，固定 6 字节；
+//   - 101 可变帧：68 L L 68 … CS 16，总长 L+6；
+//   - 104 APDU：68 LL …，总长 LL+2。
+//
+// 101 帧头优先于 104，避免 101 截断帧（len==L+2）被误判为 104。
+func CheckFrame(buf []byte) FrameCheck {
+	if len(buf) == 0 {
+		return FrameCheck{Complete: false, Reason: "空报文"}
+	}
+	if buf[0] == 0x10 {
+		exp := 6
+		if len(buf) < exp {
+			return FrameCheck{Protocol: "101", Expected: exp, Actual: len(buf), Complete: false,
+				Reason: fmt.Sprintf("101 固定帧不完整：需要 %d 字节，实际 %d 字节", exp, len(buf))}
+		}
+		if buf[exp-1] != 0x16 {
+			return FrameCheck{Protocol: "101", Expected: exp, Actual: len(buf), Complete: false,
+				Reason: "101 固定帧结束符不是 16H"}
+		}
+		return FrameCheck{Protocol: "101", Expected: exp, Actual: len(buf), Complete: true}
+	}
+	if buf[0] == 0x68 {
+		if len(buf) >= 4 && buf[1] == buf[2] && buf[3] == 0x68 {
+			exp := int(buf[1]) + 6
+			if len(buf) < exp {
+				return FrameCheck{Protocol: "101", Expected: exp, Actual: len(buf), Complete: false,
+					Reason: fmt.Sprintf("101 可变帧不完整：L=%d(0x%02X)，需要 %d 字节，实际 %d 字节",
+						buf[1], buf[1], exp, len(buf))}
+			}
+			if buf[exp-1] != 0x16 {
+				return FrameCheck{Protocol: "101", Expected: exp, Actual: len(buf), Complete: false,
+					Reason: "101 可变帧结束符不是 16H（可能被截断）"}
+			}
+			return FrameCheck{Protocol: "101", Expected: exp, Actual: len(buf), Complete: true}
+		}
+		if len(buf) < 2 {
+			return FrameCheck{Protocol: "104", Expected: 0, Actual: len(buf), Complete: false, Reason: "104 长度字节缺失"}
+		}
+		exp := int(buf[1]) + 2
+		if len(buf) < exp {
+			return FrameCheck{Protocol: "104", Expected: exp, Actual: len(buf), Complete: false,
+				Reason: fmt.Sprintf("104 APDU 不完整：L=%d，需要 %d 字节，实际 %d 字节", buf[1], exp, len(buf))}
+		}
+		return FrameCheck{Protocol: "104", Expected: exp, Actual: len(buf), Complete: true}
+	}
+	return FrameCheck{Complete: false, Reason: fmt.Sprintf("无法识别的帧起始字节 0x%02X", buf[0])}
 }
 
 // ParseAuto 自适应解析一条完整报文。

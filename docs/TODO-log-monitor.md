@@ -1,6 +1,7 @@
-# TODO：log 文件监听模式（待确认，未实现）
+# TODO：log 文件监听模式（本机 + SSH/SFTP/SCP/FTP 已实现）
 
-> 状态：**仅设计，未开始编码**。等确认技术路线后再实施。
+> 状态：**本机文件动态/静态、SSH（tail -F）、SCP、SFTP、FTP 增量监听已实现**；SSH 已用内置测试服务验证 `tail -F`，并在现场终端（192.168.1.101）实测解析 101 报文。
+> 能力补充：远程目录浏览（日志文件右侧“列出”）、空字段默认值、断线重连成功提示、静态增量更新。
 > 关联：`docs/todoList.md` M19；需求来源 2026-10-18。
 
 ## 1. 需求摘要
@@ -169,25 +170,28 @@ LogStatus() LogStatus                                    // 已读行数/解析�
 
 ## 5. 分阶段任务（建议顺序）
 
-### P0 本机文件 + 默认解析（先跑通闭环）
-- [ ] config：LogConn 字段 + Normalize
-- [ ] capture/logfile：local 动态/静态读取
-- [ ] 行解析器：默认规则 + time/HEX 提取 + 101/104 识别
-- [ ] StartCapture 分支 + session SourceKind
-- [ ] Edit→Mode 第三项 + Connection log 分区 + 提示逻辑
-- [ ] 单测：默认正则、时间解析、101/104 帧重组、静态/动态增量
+### P0 本机文件 + 默认解析（✅ 已完成 2026-10-20）
+- [x] config：LogConn 字段 + Normalize
+- [x] capture/logfile：local 动态/静态读取
+- [x] 行解析器：默认规则 + time/HEX 提取 + 101/104 识别
+- [x] StartCapture 分支 + session SourceKind
+- [x] Edit→Mode 第三项 + Connection log 分区 + 提示逻辑
+- [x] 单测：默认正则、时间解析、101/104 帧重组、静态/动态增量
 
-### P1 SSH / SFTP 远程
-- [ ] SSH 密码/Key 认证 + `tail -F` 动态流
-- [ ] SFTP 目录浏览 + 增量轮询
-- [ ] 断线重连、文件轮转/截断处理
-- [ ] 前端目录浏览选择器 + 连接测试
+### P1 SSH / SFTP 远程（✅ 2026-10-21）
+- [x] SSH 密码/Key 认证 + `tail -F` 动态流
+- [x] SFTP 增量轮询（最小 v3 客户端：OPEN/STAT/READ）
+- [x] 断线重连、文件轮转/截断处理
+- [x] 连接测试（SSH/SCP/SFTP/FTP）
+- [x] 远程目录浏览：日志文件右侧“列出”按钮，SSH `ls -la` / SFTP `OPENDIR+READDIR` / FTP `PASV+LIST`，双击目录进入，选择文件自动填入绝对路径（2026-10-22）
+- [x] 空字段默认值：`192.168.1.101` / `root` / `/data0/log/ftuMessage.log` / 22（FTP 21）；密码/私钥必须填写（2026-10-22）
+- [x] 重连成功清除错误并提示成功；主动停止不误报失败（2026-10-21）
 
-### P2 FTP / SCP 与自定义正则增强
-- [ ] FTP RETR/REST/SIZE 轮询
-- [ ] SCP 全量下载（静态）
-- [ ] 自定义正则命名组/多规则/忽略规则
-- [ ] 编码自动识别 + GBK 日志
+### P2 FTP / SCP 与自定义正则增强（✅ 大部分 2026-10-21）
+- [x] FTP RETR/REST/SIZE 轮询
+- [x] SCP 全量下载（静态，复用 SSH `cat`）
+- [x] 自定义正则命名组/多规则/忽略规则
+- [x] 编码自动识别 + GBK 日志
 - [ ] 性能与压力测试（大文件、长时间运行）
 
 ## 6. 风险与对策

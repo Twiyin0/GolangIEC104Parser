@@ -2,11 +2,13 @@ package capture
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"iec104rt/internal/capture/wpcap"
+	"iec104rt/internal/logfile"
 	"iec104rt/internal/protocol"
 )
 
@@ -29,6 +31,20 @@ type Config struct {
 
 	ParseWorkers   int // 解析并发数（0=默认 4，上限 10）
 	ParseQueueSize int // 解析队列容量（0=默认 4096）
+
+	// Log 监听（Connection.Mode="log"）
+	LogProtocol  string // local | ssh | sftp | scp | ftp
+	LogHost      string
+	LogPort      int
+	LogUser      string
+	LogPassword  string
+	LogKeyPath   string
+	LogPath      string
+	LogWatchMode string // dynamic | static
+	LogFormatRe  string
+	LogEncoding  string
+	LogProto     string // auto | 101 | 104
+	LogTailBytes int
 }
 
 // StatusFunc 状态回调（level: tcp/app/serial/engine）。
@@ -57,18 +73,36 @@ type Engine struct {
 	masterSet bool
 
 	// 解析管线（多线程并行 + 有界队列 + 顺序保持）
-	parseCh       chan rawFrame
-	parseResCh    chan parsedResult
-	workers       int
-	seqCounter    atomic.Uint64
-	nextEmit      uint64
-	pending       map[uint64]parsedResult
-	skipped       map[uint64]bool
-	skipMu        sync.Mutex
-	droppedFrames atomic.Int64
-	parseWG       sync.WaitGroup // 解析工作协程
-	orderWG       sync.WaitGroup // 顺序保持器
+	parseCh        chan rawFrame
+	parseResCh     chan parsedResult
+	workers        int
+	seqCounter     atomic.Uint64
+	nextEmit       uint64
+	pending        map[uint64]parsedResult
+	skipped        map[uint64]bool
+	skipMu         sync.Mutex
+	droppedFrames  atomic.Int64
+	parseWG        sync.WaitGroup             // 解析工作协程
+	orderWG        sync.WaitGroup             // 顺序保持器
 	testParseDelay func([]byte) time.Duration // 仅测试用：模拟解析耗时差异
+
+	// log 文件监听
+	sourceKind string
+	logReader  *logfile.Reader
+	logParser  *logfile.Parser
+	logMu      sync.Mutex
+	logLines   int64
+	logFrames  int64
+	logIgnored int64
+	logBad     int64
+	logErr     string
+
+	// 远程 log（ssh/sftp/scp/ftp）
+	remoteCloser  io.Closer
+	remoteKind    string
+	remoteOffset  int64
+	remotePending []byte
+	remoteMu      sync.Mutex
 }
 
 type connState struct {
@@ -94,9 +128,10 @@ func StartNet(cfg Config, onFrame FrameFunc, onStatus StatusFunc, onMaster Maste
 	}
 	e := &Engine{
 		cfg: cfg, onFrame: onFrame, onStatus: onStatus, onMaster: onMaster,
-		stopCh:  make(chan struct{}),
-		pairs:   map[string]*connState{},
-		streams: map[string][]byte{},
+		sourceKind: "net",
+		stopCh:     make(chan struct{}),
+		pairs:      map[string]*connState{},
+		streams:    map[string][]byte{},
 	}
 	e.running.Store(true)
 	e.status("engine", fmt.Sprintf("网口旁听已启动: %s (终端 %s:%d)", cfg.Device, cfg.TerminalIP, cfg.TerminalPort))
@@ -124,9 +159,18 @@ func (e *Engine) status(level, text string) {
 // Running 引擎是否运行中。
 func (e *Engine) Running() bool { return e.running.Load() }
 
+// SourceKind 当前引擎来源：net | serial | log。
+func (e *Engine) SourceKind() string { return e.sourceKind }
+
 // Stop 停止引擎并释放资源（先停抓包循环，再排空解析队列）。
 func (e *Engine) Stop() {
 	e.stopOnce.Do(func() { close(e.stopCh) })
+	e.remoteMu.Lock()
+	if e.remoteCloser != nil {
+		_ = e.remoteCloser.Close()
+		e.remoteCloser = nil
+	}
+	e.remoteMu.Unlock()
 	e.wg.Wait()
 	e.stopWorkers()
 	e.running.Store(false)

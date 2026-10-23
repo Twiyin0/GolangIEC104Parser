@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,13 +43,13 @@ type App struct {
 	muImported sync.Mutex
 	imported   []protocol.Frame // 导入回放的报文（带 ID，供筛选后导出）
 
-	muFile   sync.Mutex
-	files    map[string]*fileAcc    // 文件服务组包（TI=210 分段 / TI=125 段落）
-	fileNames map[int]string        // TI=210 fileId → 文件名（目录/激活/传输帧学习）
-	currentFile210 string           // 当前 TI=210 传输文件名（op=5/6 规范不带文件名）
-	currentFileSize210 int          // 当前 TI=210 文件大小（激活确认给出）
-	fileCache map[string]fileparse.Result // 文件解析结果缓存（key|格式|点表版本）
-	dbRev    int                    // 点表版本号（变更时使文件解析缓存失效）
+	muFile             sync.Mutex
+	files              map[string]*fileAcc         // 文件服务组包（TI=210 分段 / TI=125 段落）
+	fileNames          map[int]string              // TI=210 fileId → 文件名（目录/激活/传输帧学习）
+	currentFile210     string                      // 当前 TI=210 传输文件名（op=5/6 规范不带文件名）
+	currentFileSize210 int                         // 当前 TI=210 文件大小（激活确认给出）
+	fileCache          map[string]fileparse.Result // 文件解析结果缓存（key|格式|点表版本）
+	dbRev              int                         // 点表版本号（变更时使文件解析缓存失效）
 }
 
 // NewApp 创建应用（自动加载既有配置文件，缺失字段补默认值）。
@@ -138,10 +142,9 @@ func (a *App) UpdateConfig(c config.Config) config.Config {
 			d.SetParamTable(c.Parse.ParamTable)
 			changed = true
 		}
-		if c.Parse.YXTransferBase != prev.YXTransferBase || c.Parse.YCTransferBase != prev.YCTransferBase ||
-			c.Parse.YKTransferBase != prev.YKTransferBase || c.Parse.ENTransferBase != prev.ENTransferBase {
-			d.SetBases(c.Parse.YXTransferBase, c.Parse.YCTransferBase,
-				c.Parse.YKTransferBase, c.Parse.ENTransferBase)
+		b101, b104 := c.Parse.BasesFor("101"), c.Parse.BasesFor("104")
+		if b101 != prev.BasesFor("101") || b104 != prev.BasesFor("104") {
+			a.applyBases(d, c.Parse)
 			changed = true
 		}
 	}
@@ -243,21 +246,33 @@ func (a *App) StartCapture() error {
 	a.mu.Unlock()
 
 	ccfg := capture.Config{
-		Mode:         cfg.Connection.Mode,
-		Device:       cfg.Connection.Device,
-		TerminalIP:   cfg.Connection.TerminalIP,
-		TerminalPort: cfg.Connection.TerminalPort,
-		MasterIP:     cfg.Connection.MasterIP,
-		MasterPort:   cfg.Connection.MasterPort,
-		Promisc:      cfg.Connection.Promisc,
-		SerialMode:   cfg.Connection.SerialMode,
-		BaudRate:     cfg.Connection.BaudRate,
-		DataBits:     cfg.Connection.DataBits,
-		Parity:       cfg.Connection.Parity,
-		StopBits:      cfg.Connection.StopBits,
-		LinkAddr:      cfg.Connection.LinkAddr,
-		ParseWorkers:  cfg.Session.ParseWorkers,
+		Mode:           cfg.Connection.Mode,
+		Device:         cfg.Connection.Device,
+		TerminalIP:     cfg.Connection.TerminalIP,
+		TerminalPort:   cfg.Connection.TerminalPort,
+		MasterIP:       cfg.Connection.MasterIP,
+		MasterPort:     cfg.Connection.MasterPort,
+		Promisc:        cfg.Connection.Promisc,
+		SerialMode:     cfg.Connection.SerialMode,
+		BaudRate:       cfg.Connection.BaudRate,
+		DataBits:       cfg.Connection.DataBits,
+		Parity:         cfg.Connection.Parity,
+		StopBits:       cfg.Connection.StopBits,
+		LinkAddr:       cfg.Connection.LinkAddr,
+		ParseWorkers:   cfg.Session.ParseWorkers,
 		ParseQueueSize: cfg.Session.ParseQueueSize,
+		LogProtocol:    cfg.Connection.Log.Protocol,
+		LogHost:        cfg.Connection.Log.Host,
+		LogPort:        cfg.Connection.Log.Port,
+		LogUser:        cfg.Connection.Log.User,
+		LogPassword:    cfg.Connection.Log.Password,
+		LogKeyPath:     cfg.Connection.Log.SSHKeyPath,
+		LogPath:        cfg.Connection.Log.FilePath,
+		LogWatchMode:   cfg.Connection.Log.WatchMode,
+		LogFormatRe:    cfg.Connection.Log.FormatRe,
+		LogEncoding:    cfg.Connection.Log.Encoding,
+		LogProto:       cfg.Connection.Log.Proto,
+		LogTailBytes:   cfg.Connection.Log.TailBytes,
 	}
 	// 会话引用动态获取（不捕获局部变量）：即使今后任何代码路径调整了会话，
 	// 报文也会写入当前会话，避免"引擎写旧会话、查询读新会话"的错位。
@@ -282,9 +297,12 @@ func (a *App) StartCapture() error {
 	}
 	var eng *capture.Engine
 	var err error
-	if ccfg.Mode == "serial" {
+	switch ccfg.Mode {
+	case "log":
+		eng, err = capture.StartLog(ccfg, onFrame, onStatus)
+	case "serial":
 		eng, err = capture.StartSerial(ccfg, onFrame, onStatus)
-	} else {
+	default:
 		eng, err = capture.StartNet(ccfg, onFrame, onStatus, onMaster)
 	}
 	if err != nil {
@@ -300,6 +318,11 @@ func (a *App) StartCapture() error {
 // throttledNotify 节流通知前端有新帧（前端增量拉取，防高流量刷爆事件）。
 func (a *App) throttledNotify() {
 	a.mu.Lock()
+	if a.paused {
+		// 暂停时后端仍缓冲，但不通知前端；继续后由前端按 lastId 追平。
+		a.mu.Unlock()
+		return
+	}
 	a.emitBuf++
 	since := time.Since(a.lastEmit)
 	n := a.emitBuf
@@ -365,6 +388,12 @@ func (a *App) GetConnStatus() string {
 	if e == nil {
 		return "未监听"
 	}
+	if e.SourceKind() == "log" {
+		if e.Running() {
+			return "日志监听中"
+		}
+		return "未连接"
+	}
 	return e.ConnStatus()
 }
 
@@ -385,10 +414,109 @@ func (a *App) GetStats() map[string]int64 {
 		st["queue"] = int64(e.QueueLen())
 		st["pending"] = int64(e.PendingLen())
 		st["dropped"] = e.DroppedFrames()
+		if e.SourceKind() == "log" {
+			ls := e.LogStats()
+			st["logLines"] = ls.Lines
+			st["logFrames"] = ls.Frames
+			st["logIgnored"] = ls.Ignored
+			st["logBad"] = ls.Bad
+		}
 	} else {
 		st["queue"] = 0
 		st["pending"] = 0
 		st["dropped"] = 0
 	}
 	return st
+}
+
+// LogUpdate 静态日志监听：读取自上次位置以来的增量。
+func (a *App) LogUpdate() error {
+	a.mu.Lock()
+	e := a.engine
+	a.mu.Unlock()
+	if e == nil || e.SourceKind() != "log" {
+		return fmt.Errorf("当前未运行日志监听")
+	}
+	return e.UpdateLog()
+}
+
+// LogStatus 当前日志监听统计。
+func (a *App) LogStatus() capture.LogStats {
+	a.mu.Lock()
+	e := a.engine
+	a.mu.Unlock()
+	if e == nil || e.SourceKind() != "log" {
+		return capture.LogStats{}
+	}
+	return e.LogStats()
+}
+
+// LogPickFileDialog 选择本机日志文件（log 监听 Connection 配置用）。
+func (a *App) LogPickFileDialog() (string, error) {
+	if a.ctx == nil {
+		return "", fmt.Errorf("应用未就绪")
+	}
+	path, err := wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title: "选择要监听的日志文件",
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "日志文件 (*.log;*.txt;*.out)", Pattern: "*.log;*.txt;*.out"},
+			{DisplayName: "所有文件 (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// LogListDir 连接目标机并列出目录（日志文件“列出”按钮用）。
+func (a *App) LogListDir(c config.LogConn, dir string) ([]capture.RemoteFile, error) {
+	config.NormalizeLog(&c)
+	if c.Protocol == "local" {
+		return listLocalDir(c.FilePath, dir)
+	}
+	return capture.ListLogDir(capture.Config{
+		LogProtocol: c.Protocol, LogHost: c.Host, LogPort: c.Port,
+		LogUser: c.User, LogPassword: c.Password, LogKeyPath: c.SSHKeyPath,
+		LogPath: c.FilePath, LogEncoding: c.Encoding,
+	}, dir)
+}
+
+// listLocalDir 本机目录列表（与远程返回结构一致）。
+func listLocalDir(filePath, dir string) ([]capture.RemoteFile, error) {
+	if strings.TrimSpace(dir) == "" {
+		dir = filepath.Dir(filePath)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("读取目录失败: %v", err)
+	}
+	out := make([]capture.RemoteFile, 0, len(entries))
+	for _, e := range entries {
+		info, _ := e.Info()
+		var size int64
+		if info != nil {
+			size = info.Size()
+		}
+		out = append(out, capture.RemoteFile{
+			Name: e.Name(), Path: filepath.Join(dir, e.Name()), Dir: e.IsDir(), Size: size,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Dir != out[j].Dir {
+			return out[i].Dir
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, nil
+}
+
+// LogTestConn 测试日志连接配置（本机/SSH/SCP/SFTP/FTP）。
+func (a *App) LogTestConn(c config.LogConn) (string, error) {
+	config.NormalizeLog(&c)
+	return capture.TestLogConn(capture.Config{
+		LogProtocol: c.Protocol, LogHost: c.Host, LogPort: c.Port,
+		LogUser: c.User, LogPassword: c.Password, LogKeyPath: c.SSHKeyPath,
+		LogPath: c.FilePath, LogEncoding: c.Encoding,
+	})
 }

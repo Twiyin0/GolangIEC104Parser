@@ -9,6 +9,28 @@ app.config.errorHandler = (err) => {
 const vm = app.mount("#app");
 window.__vm = vm;
 
+// 静态解析页：把 .log/.txt/.md 拖入窗口 → 自动按 Log 解析
+function isFileDrag(e) {
+  return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf("Files") >= 0);
+}
+window.addEventListener("dragover", (e) => {
+  if (vm.cfg && vm.cfg.mode === "static" && isFileDrag(e)) {
+    e.preventDefault();
+    vm.dragOverLog = true;
+  }
+});
+window.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget) vm.dragOverLog = false;
+});
+window.addEventListener("dragend", () => { vm.dragOverLog = false; });
+window.addEventListener("drop", (e) => {
+  if (vm.cfg && vm.cfg.mode === "static" && isFileDrag(e)) {
+    e.preventDefault();
+    vm.dragOverLog = false;
+    vm.onDropLog(e);
+  }
+});
+
 // 矢量图标：首屏加载 + 监听 DOM 变化（动态面板/行）自动补齐
 if (window.Icons) {
   Icons.loadIcons();
@@ -17,7 +39,9 @@ if (window.Icons) {
 
 // Wails 事件注册
 if (window.runtime && window.runtime.EventsOn) {
-  window.runtime.EventsOn("frames:new", () => vm.pollOnce());
+  window.runtime.EventsOn("frames:new", () => {
+    if (!vm.paused) vm.pollOnce();
+  });
   window.runtime.EventsOn("status", (s) => {
     if (!s) return;
     vm.statusEvents.push(s);
@@ -40,7 +64,7 @@ if (window.runtime && window.runtime.EventsOn) {
 
 // 轮询：新帧（事件驱动为主，轮询兜底）+ 连接状态灯 + 统计
 setInterval(() => {
-  if (vm.cfg.mode === "realtime" && vm.view === "realtime" && !vm.paused) vm.pollOnce();
+  if ((vm.cfg.mode === "realtime" || vm.cfg.mode === "log") && vm.view === "realtime" && !vm.paused) vm.pollOnce();
 }, 400);
 setInterval(() => {
   vm.api().GetConnStatus().then((s) => (vm.connStatus = s));
@@ -89,6 +113,15 @@ setInterval(() => {
   }
   api.GetConfig().then((c) => {
     vm.cfg = c;
+    if (vm.cfg.connection) {
+      vm.cfg.connection.log = vm.normalizeLogConn(Object.assign({}, DefaultConn.log, vm.cfg.connection.log || {}));
+    }
+    // 旧配置兼容：缺失 101/104 分协议基址时，用旧字段初始化，二者默认一致
+    const p = vm.cfg.parse || {};
+    const legacy = { yx: p.yxTransferBase || 0, yc: p.ycTransferBase ?? 16384, yk: p.ykTransferBase ?? 24576, en: p.enTransferBase ?? 25600 };
+    p.base104 = Object.assign({}, legacy, p.base104 || {});
+    p.base101 = Object.assign({}, p.base104, p.base101 || {});
+    vm.cfg.parse = p;
     vm.applyThemeNow();
   }).catch((e) => vm.showToast(e.message || e, true));
   api.PcapInfo().then((s) => (vm.pcapInfo = s));

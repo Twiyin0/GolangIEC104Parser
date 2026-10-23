@@ -17,15 +17,29 @@ const AppActions = {
 
   // ── 监听控制（需求第 5 条）──
   startListen() {
+    if (this.cfg.mode === "log" && this.cfg.connection.mode !== "log") {
+      this.showToast("请先在 Connection 选择 log 监听模式并配置文件路径", true);
+      this.openConn();
+      this.conn.mode = "log";
+      return;
+    }
     const api = this.api();
     api.StartCapture()
-      .then(() => { this.running = true; this.pollOnce(); this.showToast("已开始监听（旁听模式，不占用端口）"); })
+      .then(() => { this.running = true; this.pollOnce(); this.showToast(this.cfg.mode === "log" ? "已开始日志监听" : "已开始监听（旁听模式，不占用端口）"); })
       .catch((e) => this.showToast(e.message || e, true));
   },
   stopListen() {
     this.api().StopCapture();
     this.running = false;
+    this.logStatus = {};
     this.showToast("监听已停止（已缓冲报文保留，可导出/查看）");
+  },
+  // 静态 log 监听：读取自上次位置以来的新增内容
+  logUpdate() {
+    this.api().LogUpdate().then(() => {
+      this.pollOnce(true);
+      this.showToast("日志已更新（仅解析新增内容）");
+    }).catch((e) => this.showToast(e.message || e, true));
   },
   pauseListen() {
     this.api().PauseCapture();
@@ -49,8 +63,12 @@ const AppActions = {
 
   // ── 报文拉取（增量）与选择 ──
   pollOnce(catchup) {
-    if (this.cfg.mode !== "realtime" || this.view !== "realtime") return;
+    if (this.paused) return; // 暂停时前端冻结；继续后从 lastId 追平后端缓冲
+    if ((this.cfg.mode !== "realtime" && this.cfg.mode !== "log") || this.view !== "realtime") return;
     const api = this.api();
+    if (this.cfg.mode === "log") {
+      api.LogStatus().then((s) => { this.logStatus = s || {}; }).catch(() => {});
+    }
     api.GetFrames(this.lastId, 400).then((list) => {
       if (!list || !list.length) return;
       for (const f of list) {
@@ -139,11 +157,24 @@ const AppActions = {
     document.body.classList.toggle("light", this.cfg.ui.theme === "light");
   },
   setMode(m) {
+    if (m === "log") {
+      const conn = this.cfg.connection || {};
+      const lc = conn.log || {};
+      if (conn.mode !== "log" || !lc.protocol || !lc.filePath) {
+        this.showToast("请先在 Connection 配置 log 监听连接信息", true);
+        this.openConn();
+        this.conn.mode = "log";
+        this.conn.log = Object.assign({}, DefaultConn.log, lc);
+        return;
+      }
+    }
     this.cfg.mode = m;
     this.syncParseCfgFromDb();
     this.api().UpdateConfig(this.cfg);
     this.selected = null;
-    this.showToast(m === "static" ? "已切换：静态解析模式（Static Parser）" : "已切换：实时解析模式（RealTime Parser）");
+    const label = m === "static" ? "静态解析模式（Static Parser）"
+      : m === "log" ? "log 文件监听模式（Log Monitor）" : "实时解析模式（RealTime Parser）";
+    this.showToast("已切换：" + label);
   },
   setAutoScroll() { this.syncParseCfgFromDb(); this.api().UpdateConfig(this.cfg); },
 };

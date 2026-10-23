@@ -40,6 +40,7 @@
             <div class="subitems">
               <button :class="cfg.mode==='realtime' ? 'check' : 'uncheck'" @click="setMode('realtime'); closeMenus()"><span class="app-icon" data-icon="bolt"></span>RealTime Parser</button>
               <button :class="cfg.mode==='static' ? 'check' : 'uncheck'" @click="setMode('static'); closeMenus()"><span class="app-icon" data-icon="code"></span>Static Parser</button>
+              <button :class="cfg.mode==='log' ? 'check' : 'uncheck'" @click="setMode('log'); closeMenus()"><span class="app-icon" data-icon="file-check"></span>Log Monitor</button>
             </div>
           </div>
           <div class="sep"></div>
@@ -73,9 +74,11 @@
     <button class="btn" :disabled="!running || paused" @click="pauseListen"><span class="app-icon" data-icon="pause"></span>暂停</button>
     <button class="btn" :disabled="!paused" @click="resumeListen"><span class="app-icon" data-icon="play"></span>继续</button>
     <button class="btn" @click="clearList"><span class="app-icon" data-icon="trash"></span>清空</button>
+    <button class="btn" v-if="cfg.mode==='log' && cfg.connection.log.watchMode==='static'" :disabled="!running" @click="logUpdate"><span class="app-icon" data-icon="rotate-ccw"></span>更新日志</button>
     <button class="btn" v-if="view==='import'" @click="backToRealtime"><span class="app-icon" data-icon="rotate-ccw"></span>返回实时</button>
     <span class="connlight" :class="connClass"><span class="dot-ind" :class="connClass"></span>{{ connStatus }}</span>
-    <span class="meta"><span class="app-icon" data-icon="plug"></span>主站端口 {{ masterPortText }} <a href="#" @click.prevent="detectMaster">[扫描]</a></span>
+    <span class="meta" v-if="cfg.mode!=='log'"><span class="app-icon" data-icon="plug"></span>主站端口 {{ masterPortText }} <a href="#" @click.prevent="detectMaster">[扫描]</a></span>
+    <span class="meta" v-if="cfg.mode==='log'"><span class="app-icon" data-icon="file-check"></span>日志 行 {{ logStatus.lines || 0 }} / 帧 {{ logStatus.frames || 0 }} / 忽略 {{ logStatus.ignored || 0 }}<template v-if="logStatus.lastError"> ｜ <span style="color:var(--err)">{{ logStatus.lastError }}</span></template></span>
     <span class="meta"><span class="app-icon" data-icon="chart-line"></span>帧 {{ stats.count || 0 }} / 累计 {{ stats.total || 0 }}<template v-if="stats.queue"> ｜ 队列 {{ stats.queue }}</template><template v-if="stats.pending"> ｜ 重排 {{ stats.pending }}</template><template v-if="stats.dropped"> ｜ <span style="color:var(--warn)">丢弃 {{ stats.dropped }}</span></template></span>
     <span class="spacer"></span>
     <span class="meta"><label><input type="checkbox" v-model="cfg.ui.autoScroll" @change="setAutoScroll"><span class="app-icon" data-icon="arrow-down"></span>自动滚动</label></span>
@@ -157,7 +160,7 @@
   <!-- 主体 -->
   <div class="main">
     <!-- 实时模式 / 导入回放 -->
-    <template v-if="cfg.mode==='realtime'">
+    <template v-if="cfg.mode==='realtime' || cfg.mode==='log'">
       <div class="listpane">
         <div class="scroller">
           <table class="msgtable">
@@ -199,13 +202,16 @@
     <template v-else>
       <div class="staticpane">
         <div class="staticinput">
-          <textarea v-model="staticText" placeholder="输入报文 HEX（每行一条，104 与 101 自适应）…"></textarea>
+          <textarea v-model="staticText" placeholder="输入报文 HEX（每行一条，104 与 101 自适应），或粘贴带 Tx/Rx 的 log 文本…"></textarea>
           <div class="staticactions">
-            <button class="btn primary" @click="parseStatic">解析</button>
+            <button class="btn primary" @click="parseStatic">解析 HEX</button>
+            <button class="btn" @click="parseLogFile">解析 Log 文件</button>
+            <button class="btn" @click="parseLogText">解析 Log 文本</button>
             <button class="btn" @click="fillSample">示例</button>
             <button class="btn" @click="clearStatic">清空</button>
           </div>
         </div>
+        <div class="loghint">Log 文件：自动提取 Tx/Rx 行尾的 101/104 报文，支持 101 可变帧；点表/定值表沿用当前配置。</div>
         <div class="staticbody">
           <div class="listpane">
             <div class="scroller">
@@ -240,7 +246,7 @@
   <footer class="statusbar">
     <span v-for="(s,i) in statusTail" :key="i" class="stat" :class="s.level">[{{ s.time }}] {{ s.text }}</span>
     <span class="spacer"></span>
-    <span class="stat engine"><span class="app-icon" :data-icon="cfg.mode==='static' ? 'code' : 'bolt'"></span>{{ modeLabel }}</span>
+    <span class="stat engine"><span class="app-icon" :data-icon="cfg.mode==='static' ? 'code' : (cfg.mode==='log' ? 'file' : 'bolt')"></span>{{ modeLabel }}</span>
     <span class="stat"><span class="app-icon" data-icon="wifi"></span>{{ pcapInfo }}</span>
   </footer>
 
@@ -255,6 +261,7 @@
           <select v-model="conn.mode" @change="onConnModeChange">
             <option value="net">网口旁听（104 · 不占用端口）</option>
             <option value="serial">串口（101）</option>
+            <option value="log">log 文件监听（101/104）</option>
           </select>
         </div>
         <template v-if="conn.mode==='net'">
@@ -275,7 +282,7 @@
             <label title="捕获非本机流量需交换机镜像端口"><input type="checkbox" v-model="conn.promisc"> 捕获非本机流量</label>
           </div>
         </template>
-        <template v-else>
+        <template v-else-if="conn.mode==='serial'">
           <div class="mrow2">
             <div class="row"><label>串口</label>
               <select v-model="conn.device"><option v-for="p in serialPorts" :key="p" :value="p">{{ p }}</option></select>
@@ -305,8 +312,62 @@
           </div>
           <div class="row"><label>链路地址</label><input type="number" v-model="conn.linkAddr"></div>
         </template>
+        <template v-else-if="conn.mode==='log'">
+          <div class="mrow2">
+            <div class="row"><label>传输协议</label>
+              <select v-model="conn.log.protocol" @change="onLogProtocolChange">
+                <option value="local">本机文件（local）</option>
+                <option value="ssh">SSH（tail -F）</option>
+                <option value="sftp">SFTP</option>
+                <option value="scp">SCP（静态）</option>
+                <option value="ftp">FTP</option>
+              </select>
+            </div>
+            <div class="row"><label>监听模式</label>
+              <select v-model="conn.log.watchMode">
+                <option value="dynamic">动态监听（追加解析）</option>
+                <option value="static">静态监听（点更新读取）</option>
+              </select>
+            </div>
+          </div>
+          <template v-if="conn.log.protocol!=='local'">
+            <div class="mrow2">
+              <div class="row"><label>终端 IP</label><input type="text" v-model="conn.log.host" placeholder="192.168.1.101"></div>
+              <div class="row"><label>端口</label><input type="number" v-model="conn.log.port"></div>
+            </div>
+            <div class="mrow2">
+              <div class="row"><label>用户名</label><input type="text" v-model="conn.log.user"></div>
+              <div class="row"><label>密码</label><input type="password" v-model="conn.log.password" placeholder="可空，改用 SSH Key"></div>
+            </div>
+            <div class="row" v-if="conn.log.protocol==='ssh'||conn.log.protocol==='sftp'||conn.log.protocol==='scp'">
+              <label>SSH Key</label><input type="text" v-model="conn.log.sshKeyPath" placeholder="私钥路径（推荐）">
+            </div>
+          </template>
+          <div class="row"><label>网卡</label><input type="text" v-model="conn.log.netIf" placeholder="可选：本机/出口网卡名"></div>
+          <div class="row"><label>日志文件</label>
+            <input type="text" v-model="conn.log.filePath" placeholder="本机绝对路径或终端上的日志路径" style="flex:1">
+            <button class="btn tiny" v-if="conn.log.protocol==='local'" @click="pickLogFile">选择</button>
+            <button class="btn tiny" v-if="conn.log.protocol!=='local'" @click="openLogBrowser">列出</button>
+          </div>
+          <div class="mrow2">
+            <div class="row"><label>协议</label>
+              <select v-model="conn.log.proto"><option value="auto">自动识别 101/104</option><option value="101">强制 101</option><option value="104">强制 104</option></select>
+            </div>
+            <div class="row"><label>编码</label>
+              <select v-model="conn.log.encoding"><option value="auto">自动（UTF-8/GBK）</option><option value="utf-8">UTF-8</option><option value="gbk">GBK/GB18030</option></select>
+            </div>
+          </div>
+          <div class="mrow2">
+            <div class="row"><label>启动回溯</label><input type="number" v-model="conn.log.tailBytes" title="动态监听启动时从文件末尾回溯的字节数，默认 65536"></div>
+            <div class="row"><label>连接测试</label><button class="btn tiny" @click="testLogConn">测试</button></div>
+          </div>
+          <div class="row"><label>格式正则</label>
+            <input type="text" v-model="conn.log.formatRe" placeholder="留空=内置规则；需含 (?P<time>…) 与 (?P<message>…)" style="flex:1">
+          </div>
+          <div class="mnote">本机文件开箱即用；远程 SSH/SFTP/SCP/FTP 为后续接入项。正则支持 (?&lt;name&gt;…) 写法。</div>
+        </template>
       </div>
-      <div class="mnote">旁听模式不 bind/connect 终端端口；网口抓包需管理员权限</div>
+      <div class="mnote" v-if="conn.mode!=='log'">旁听模式不 bind/connect 终端端口；网口抓包需管理员权限</div>
       <div class="msec">解析</div>
       <div class="mcol">
         <div class="mrow2">
@@ -330,12 +391,20 @@
             定值<select v-model="cfg.parse.addrFormat.para"><option value="hex">十六进制</option><option value="dec">十进制</option></select>
           </span>
         </div>
-        <div class="row"><label>转发基址</label>
-          <span class="inline-fields" title="选定具体点表时：信息体地址 = 基址 + SwitchPoint，点名为 SwitchName">
-            遥信<input type="number" class="num-sm" v-model="cfg.parse.yxTransferBase">
-            遥测<input type="number" class="num-sm" v-model="cfg.parse.ycTransferBase">
-            遥控<input type="number" class="num-sm" v-model="cfg.parse.ykTransferBase">
-            电能量<input type="number" class="num-sm" v-model="cfg.parse.enTransferBase">
+        <div class="row"><label>转发基址 104</label>
+          <span class="inline-fields" title="104 选定具体点表时：信息体地址 = 基址 + SwitchPoint，点名为 SwitchName">
+            遥信<input type="number" class="num-sm" v-model="cfg.parse.base104.yx">
+            遥测<input type="number" class="num-sm" v-model="cfg.parse.base104.yc">
+            遥控<input type="number" class="num-sm" v-model="cfg.parse.base104.yk">
+            电能量<input type="number" class="num-sm" v-model="cfg.parse.base104.en">
+          </span>
+        </div>
+        <div class="row"><label>转发基址 101</label>
+          <span class="inline-fields" title="101 选定具体点表时：信息体地址 = 基址 + SwitchPoint；与 104 基址互不影响">
+            遥信<input type="number" class="num-sm" v-model="cfg.parse.base101.yx">
+            遥测<input type="number" class="num-sm" v-model="cfg.parse.base101.yc">
+            遥控<input type="number" class="num-sm" v-model="cfg.parse.base101.yk">
+            电能量<input type="number" class="num-sm" v-model="cfg.parse.base101.en">
           </span>
         </div>
       </div>
@@ -343,6 +412,42 @@
       <div class="modalfoot">
         <button class="btn" @click="showConn=false">取消</button>
         <button class="btn primary" @click="applyConn">应用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- log 远程目录浏览：连接目标机后列出目录，双击目录进入，点击文件填入绝对路径 -->
+  <div class="modal-mask" v-if="showLogBrowser" @click.self="closeLogBrowser">
+    <div class="modal logbrowser">
+      <h3>选择终端日志文件</h3>
+      <div class="logbrowser-bar">
+        <input type="text" v-model="logBrowser.dir" @keyup.enter="loadLogDir(logBrowser.dir)" placeholder="目录绝对路径">
+        <button class="btn tiny" @click="loadLogDir(logBrowser.dir)">转到</button>
+        <button class="btn tiny" @click="loadLogDir(logParent(logBrowser.dir))">上级</button>
+        <button class="btn tiny" @click="loadLogDir(logBrowser.dir)">刷新</button>
+      </div>
+      <div class="logbrowser-list">
+        <div v-if="logBrowser.loading" class="logbrowser-tip">正在连接并读取目录…</div>
+        <div v-else-if="logBrowser.error" class="logbrowser-tip err">{{ logBrowser.error }}</div>
+        <div v-else-if="!logBrowser.items.length" class="logbrowser-tip">目录为空</div>
+        <template v-else>
+          <div class="logbrowser-row" v-if="logBrowser.dir !== '/' && logBrowser.dir !== ''" @dblclick="loadLogDir(logParent(logBrowser.dir))">
+            <span class="app-icon" data-icon="folder"></span><span class="nm">..（上级目录）</span>
+          </div>
+          <div class="logbrowser-row" v-for="it in logBrowser.items" :key="it.path"
+               :class="{dir: it.dir, sel: logBrowser.sel === it.path}"
+               @click="logBrowser.sel = it.path; logBrowser.isFileSel = !it.dir"
+               @dblclick="it.dir ? loadLogDir(it.path) : chooseLogFile(it)">
+            <span class="app-icon" :data-icon="it.dir ? 'folder' : 'file-check'"></span>
+            <span class="nm">{{ it.name }}</span>
+            <span class="sz">{{ it.dir ? '' : fmtSize(it.size) }}</span>
+          </div>
+        </template>
+      </div>
+      <div class="mnote">双击目录进入；单击选中文件后点“选择”，或双击文件直接填入绝对路径。</div>
+      <div class="modalfoot">
+        <button class="btn" @click="closeLogBrowser">取消</button>
+        <button class="btn primary" :disabled="!logBrowser.sel || !logBrowser.isFileSel" @click="chooseLogFileBySel">选择</button>
       </div>
     </div>
   </div>
@@ -375,6 +480,11 @@
     </div>
   </div>
 
+  <!-- 静态解析页：文件拖入提示（松手后自动按 Log 解析）-->
+  <div class="dropmask" v-if="dragOverLog">
+    <div class="dropmask-box">松开鼠标：按 Log 解析<br><small>支持 .log / .txt / .md（自动提取 Tx/Rx 中的 101/104 报文）</small></div>
+  </div>
+
   <!-- toast -->
   <div class="toast" v-if="toast" :class="{err: toastErr}">{{ toast }}</div>
 </div>
@@ -394,3 +504,4 @@
 <script src="assets/colresize.js"></script>
 </body>
 </html>
+

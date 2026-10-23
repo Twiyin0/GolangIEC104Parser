@@ -9,14 +9,15 @@ Windows 桌面版 **IEC 60870-5-101/104 实时报文解析工具**：Wireshark �
 | --- | --- |
 | 网口旁听（104） | 旁听模式 **bind/connect 终端端口**（零占用、对现场无干扰），按主站/终端 IP·端口过滤，自动识别主站端口 |
 | 串口旁听（101） | 485 总线并联挂接被动旁听 / 232 点对点直接测试，链路地址可配 |
-| 实时解析 | 多线程并行解析（默认 16，上限 256）+ 有界队列 + **顺序保持器**（结果仍按抓包顺序输出） |
-| 点名（点表） | `Edit → dbSelect(点表加载)` 加载工程 SQLite 库：遥信/遥测/遥控/电能量/参数转发表；**101 与 104 可各自选择“全部点表 / 具体转发表”**，互不影响；转发点表（`信息体地址 = 基址 + SwitchPoint`，点名为 `SwitchName`），四类基址可配置 |
+| Log 文件监听（101/104） | `Edit → Mode → Log Monitor`：本机 `.log` 动态追加 / 静态“更新日志”，自动提取时间/方向/HEX，支持 101 可变帧与轮转；远程 SSH（`tail -F`）/ SFTP / SCP / FTP 增量监听；SSH 空字段默认 `192.168.1.101` / `root` / `/data0/log/ftuMessage.log`，密码或私钥仍需填写；日志文件右侧“列出”可连接目标机浏览目录并选文件自动填入绝对路径 |
+| 实时解析 | 多线程并行解析（默认 16，上限 256）+ 有界队列 + **顺序保持器**（结果仍按抓包顺序输出）；暂停时界面冻结、后台继续缓冲，继续后自动追平 |
+| 点名（点表） | `Edit → dbSelect(点表加载)` 加载工程 SQLite 库：遥信/遥测/遥控/电能量/参数转发表；**101 与 104 可各自选择“全部点表 / 具体转发表”**，互不影响；转发点表（`信息体地址 = 基址 + SwitchPoint`，点名为 `SwitchName`），**101/104 转发基址分开配置** |
 | 定值表 | 国网 `ProjectGWParamPoint` / 南网 `ProjectNWParamPoint`（Addr 十进制匹配），可切换"无/国网/南网"并持久化 |
 | 搜索与筛选 | 通配符/正则搜索、范围多选、组合条件筛选（时间/方向/协议/分类/TI/原文），命中整行高亮 |
 | 导入导出 | 导出 markdown/text/log（按当前点表渲染点名，有筛选时询问范围）；导入 md/text/log 重新解析回放 |
 | 文件服务解析 | 文件目录 / 文件列表 / 段落数据（msg / xml）按扩展名识别、传输完成后自动解析；SOE/遥控/极值/定点记录中文表头；COMTRADE `.cfg`+`.dat` 自动配对绘制波形；原始传输帧可折叠 |
 | 显示与体验 | 地址进制可配（各类地址十六进制/十进制，高位 0 不补位）、深浅主题、矢量图标、会话缓冲上限、暂停不缓冲 |
-| 静态解析 | `Edit → Mode → Static Parser`：粘贴/导入报文文本直接解析 |
+| 静态解析 | `Edit → Mode → Static Parser`：粘贴/导入报文 HEX；支持选择、粘贴或**拖入** `.log/.txt/.md`，自动提取 `Tx/Rx` 行中的 101/104 报文（含 101 可变帧） |
 
 ## 运行要求
 
@@ -41,8 +42,9 @@ git push origin v0.0.1
 ```
 ├─ main.go / app.go / appapi.go / dbapi.go / fileapi.go …   Wails 宿主与后端 API
 ├─ internal/protocol/   101/104 解析核心（common/asdu/iec104/iec101/detect/stream/classify）
-├─ internal/capture/    抓包引擎（纯 Go syscall 绑定 wpcap.dll、TCP 流重组、串口、解析管线）
-├─ internal/pointdb/    点表数据库（SQLite，转发点表 / 国网·南网定值表）
+├─ internal/capture/    抓包引擎（纯 Go syscall 绑定 wpcap.dll、TCP 流重组、串口、解析管线）+ log 监听（local/SSH/SFTP/FTP/SCP）
+├─ internal/logfile/    日志行解析（默认/自定义正则、时间/方向/HEX）与增量文件读取
+├─ internal/pointdb/    点表数据库（SQLite，转发点表 / 国网·南网定值表；101/104 独立选表与基址）
 ├─ internal/exporter/   导出渲染（markdown/text/log）
 ├─ internal/fileparse/  文件服务内容解析（msg/xml）
 ├─ frontend/dist/       Vue3 静态前端（无 npm 构建，直接内嵌）
@@ -56,6 +58,7 @@ git push origin v0.0.1
 - 需求与规则：[`docs/require.md`](docs/require.md)
 - 使用与功能说明：[`docs/README.md`](docs/README.md)
 - 里程碑与变更记录：[`docs/todoList.md`](docs/todoList.md)
+- log 文件监听设计与进度：[`docs/TODO-log-monitor.md`](docs/TODO-log-monitor.md)
 - 目标与约束：[`docs/Goal.md`](docs/Goal.md)
 
 ## 许可证

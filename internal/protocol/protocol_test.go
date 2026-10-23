@@ -7,6 +7,47 @@ import (
 	"iec104rt/internal/protocol/iec104"
 )
 
+// 101 完整帧地址/值校验 + 截断帧 L 检查（回归：D3 控制帧 36 点）。
+func TestCheck101LAndAddresses(t *testing.T) {
+	const hex = "68 BF BF 68 D3 01 00 0D A4 14 00 01 00 11 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80 3F 00 00 00 48 42 00 E4 AC DE 41 00 00 00 C8 42 00 52 50 E8 BC 00 F5 E0 FD BC 00 96 EA 95 3B 00 98 79 3A 42 00 00 00 00 40 00 60 A1 BA 36 00 00 00 61 45 00 EB 32 5F 43 00 4E AB 5B 43 00 6A A2 5B 43 00 4C 96 A6 36 00 E5 69 B3 3D 00 12 CC 37 3B 00 1D 41 0E 3D 00 C7 78 37 3B 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 61 95 6A 43 00 00 00 00 00 00 8B E5 03 3F 00 70 16"
+	buf, err := iec104.HexToBytes(hex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chk := CheckFrame(buf)
+	if !chk.Complete || chk.Protocol != "101" || chk.Expected != 197 || chk.Actual != 197 {
+		t.Fatalf("完整帧检查错误: %+v", chk)
+	}
+	fs := ParseBest(buf)
+	if len(fs) != 1 || fs[0].Proto != "101" || fs[0].Ti != 13 {
+		t.Fatalf("完整帧解析错误: %+v", fs)
+	}
+	d, ok := fs[0].Parsed["data"].([]common.M)
+	if !ok || len(d) != 36 {
+		t.Fatalf("点数错误: %d", len(d))
+	}
+	if d[0]["addr"] != 0x4011 || d[0]["value"] != float64(0) {
+		t.Fatalf("首点错误: %#v", d[0])
+	}
+	if d[11]["addr"] != 0x401C || d[11]["value"] != float64(1) {
+		t.Fatalf("第12点错误: %#v", d[11])
+	}
+	if d[21]["value"] != float64(3600) || d[35]["addr"] != 0x4034 {
+		t.Fatalf("末点错误: #22=%#v #36=%#v", d[21], d[35])
+	}
+	// 截断 4 字节后：L 仍为 191，必须判定 101 不完整，不能猜成 104
+	trunc := buf[:len(buf)-4]
+	if got := Detect(trunc); got != "101" {
+		t.Fatalf("截断帧 Detect=%q，want 101", got)
+	}
+	if chk := CheckFrame(trunc); chk.Complete || chk.Expected != 197 || chk.Actual != 193 {
+		t.Fatalf("截断帧检查错误: %+v", chk)
+	}
+	if fs := ParseBest(trunc); len(fs) != 0 {
+		t.Fatalf("截断帧不应解析出帧: %+v", fs)
+	}
+}
+
 // 101 可变帧：68 L L 68 C A ASDU CS 16。按 104 切会截断成 68 L …，
 // 自适应必须识别为 101（回归：静态解析曾因“104 帧数不少于 101”而误判）。
 func TestDetect101VariableFrame(t *testing.T) {

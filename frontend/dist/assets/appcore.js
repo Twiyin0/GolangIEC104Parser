@@ -5,6 +5,10 @@ const DefaultConn = {
   mode: "net", device: "", terminalIp: "192.168.1.101", terminalPort: 2404,
   masterIp: "", masterPort: 0, promisc: false,
   serialMode: "passive", baudRate: 9600, dataBits: 8, parity: "even", stopBits: 1, linkAddr: 1,
+  log: {
+    netIf: "", protocol: "ssh", host: "192.168.1.101", port: 22, user: "root", password: "", sshKeyPath: "",
+    filePath: "/data0/log/ftuMessage.log", watchMode: "dynamic", formatRe: "", encoding: "auto", proto: "auto", tailBytes: 65536,
+  },
 };
 
 const AppCore = {
@@ -16,6 +20,8 @@ const AppCore = {
         session: { maxFrames: 50000, exportDir: "", parseWorkers: 16, parseQueueSize: 4096 },
         parse: {
           yxTransferBase: 0, ycTransferBase: 16384, ykTransferBase: 24576, enTransferBase: 25600,
+          base101: { yx: 0, yc: 16384, yk: 24576, en: 25600 },
+          base104: { yx: 0, yc: 16384, yk: 24576, en: 25600 },
           paramTable: "",
           addrFormat: { yx: "dec", yc: "hex", yk: "hex", en: "hex", para: "hex" },
         },
@@ -26,6 +32,7 @@ const AppCore = {
       running: false,
       paused: false,
       connStatus: "未监听",
+      logStatus: {},
       masterPort: 0,
       stats: {},
       frames: [],
@@ -48,11 +55,15 @@ const AppCore = {
       staticText: "",
       staticFrames: [],
       importedFrames: [],
+      // log 远程文件浏览器
+      showLogBrowser: false,
+      logBrowser: { dir: "", items: [], sel: "", loading: false, error: "", isFileSel: false },
       filterCat: "",
       dbInfo: { ok: false, detail: "", tableNames: [], curTable: "", curTable101: "", curTable104: "", paramTable: "", hasGwParam: false, hasNwParam: false },
       dbTable101: "__all__",
       dbTable104: "__all__",
       dbParamTable: "",
+      dragOverLog: false,
       userReset: false, // 用户主动清空标记（用于会话重置自愈提示）
       // 搜索与筛选系统
       searchOpen: false,
@@ -65,7 +76,7 @@ const AppCore = {
   computed: {
     connClass() {
       const s = this.connStatus;
-      if (s.indexOf("已连接") >= 0) return "up";
+      if (s.indexOf("已连接") >= 0 || s.indexOf("日志监听") >= 0) return "up";
       if (s === "握手中") return "syn";
       if (s === "未监听") return "off";
       return "down";
@@ -175,7 +186,9 @@ const AppCore = {
       return this.displayFrames.length + " / " + this.listFrames.length;
     },
     modeLabel() {
-      return this.cfg.mode === "static" ? "Static Parser" : "RealTime Parser";
+      if (this.cfg.mode === "static") return "Static Parser";
+      if (this.cfg.mode === "log") return "Log Monitor";
+      return "RealTime Parser";
     },
   },
 };

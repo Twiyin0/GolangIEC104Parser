@@ -28,6 +28,7 @@ func StartSerial(cfg Config, onFrame FrameFunc, onStatus StatusFunc) (*Engine, e
 	}
 	e := &Engine{
 		cfg: cfg, onFrame: onFrame, onStatus: onStatus,
+		sourceKind: "serial",
 		stopCh:  make(chan struct{}),
 		pairs:   map[string]*connState{},
 		streams: map[string][]byte{},

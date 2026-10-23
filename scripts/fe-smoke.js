@@ -144,6 +144,13 @@ assert(html.indexOf('v-model="dbTable101"') >= 0 && html.indexOf('v-model="dbTab
 assert(html.indexOf("setDbTable('101')") >= 0 && html.indexOf("setDbTable('104')") >= 0,
   "点表下拉应分别调用 setDbTable('101')/setDbTable('104')");
 assert(!/\bv-model="dbTable"\b/.test(html), "不应残留单一点表选择 dbTable");
+// 静态模式 log 文件/文本解析入口（防回归）
+assert(html.indexOf('@click="parseLogFile"') >= 0 && html.indexOf('@click="parseLogText"') >= 0,
+  "静态模式应提供“解析 Log 文件/解析 Log 文本”按钮");
+assert(html.indexOf('v-if="dragOverLog"') >= 0, "静态模式应提供文件拖入提示层");
+assert(html.indexOf("setMode('log')") >= 0, "Edit→Mode 应提供 Log Monitor");
+assert(html.indexOf('value="log"') >= 0 && html.indexOf('conn.log.filePath') >= 0, "Connection 应提供 log 监听配置");
+assert(html.indexOf('@click="logUpdate"') >= 0, "静态 log 监听应提供更新按钮");
 // normalizeSvg：注入 currentColor / 1em 尺寸 / 去声明（含子元素写死颜色改写）
 const raw = fs.readFileSync(path.join(distDir, "assets", "iconLib", "search.svg"), "utf8");
 const svg = ICONS.normalizeSvg(raw);

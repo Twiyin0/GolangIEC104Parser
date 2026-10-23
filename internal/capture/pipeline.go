@@ -10,10 +10,11 @@ import (
 
 // rawFrame 待解析的原始报文（带序号，用于保证输出顺序）。
 type rawFrame struct {
-	seq  uint64
-	data []byte
-	time string
-	dir  string
+	seq   uint64
+	data  []byte
+	time  string
+	dir   string
+	proto string // ""=自动；101/104=日志配置强制
 }
 
 // parsedResult 解析结果（乱序完成，由顺序保持器按 seq 重排）。
@@ -72,6 +73,13 @@ func (e *Engine) parseWorker() {
 			}
 		}
 		f, err := protocol.ParseAuto(rf.data)
+		if rf.proto == "101" || rf.proto == "104" {
+			if fs := protocol.ParseStream(rf.proto, rf.data); len(fs) > 0 {
+				f, err = fs[0], nil
+			} else {
+				err = fmt.Errorf("按 %s 解析失败", rf.proto)
+			}
+		}
 		if err != nil {
 			e.parseResCh <- parsedResult{seq: rf.seq, ok: false}
 			continue
@@ -152,6 +160,10 @@ func (e *Engine) clearSkipped(seq uint64) {
 
 // enqueue 投递原始报文到解析队列（非阻塞：队列满则丢弃并计数，绝不阻塞抓包循环）。
 func (e *Engine) enqueue(raw []byte, capTime, dir string) {
+	e.enqueueProto(raw, capTime, dir, "")
+}
+
+func (e *Engine) enqueueProto(raw []byte, capTime, dir, proto string) {
 	if e.parseCh == nil {
 		return
 	}
@@ -159,7 +171,7 @@ func (e *Engine) enqueue(raw []byte, capTime, dir string) {
 	cp := make([]byte, len(raw))
 	copy(cp, raw)
 	select {
-	case e.parseCh <- rawFrame{seq: seq, data: cp, time: capTime, dir: dir}:
+	case e.parseCh <- rawFrame{seq: seq, data: cp, time: capTime, dir: dir, proto: proto}:
 	default:
 		e.droppedFrames.Add(1)
 		e.markSkipped(seq) // 通知顺序保持器跳过该序号（保持后续顺序不乱）
@@ -195,4 +207,3 @@ func (e *Engine) stopWorkers() {
 		e.parseResCh = nil
 	}
 }
-

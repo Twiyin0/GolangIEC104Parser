@@ -76,8 +76,10 @@ type DB struct {
 	CurTable101 string
 	CurTable104 string
 
-	// 转发点表基值（选定具体表时生效）
+	// 转发点表基值（选定具体表时生效）：104 用 Base*，101 用 Base*101
 	BaseYX, BaseYC, BaseYK, BaseEN int
+	BaseYX101, BaseYC101           int
+	BaseYK101, BaseEN101           int
 	YCBase                         int // 兼容旧字段（= BaseYC）
 
 	// 定值表（国网/南网）与当前选择
@@ -109,6 +111,7 @@ func Load(path string) (*DB, error) {
 	}
 	defer db.Close()
 	d := &DB{FilePath: path, BaseYX: BaseYX, BaseYC: BaseYC, BaseYK: BaseYK, BaseEN: BaseEN,
+		BaseYX101: BaseYX, BaseYC101: BaseYC, BaseYK101: BaseYK, BaseEN101: BaseEN,
 		YCBase: BaseYC, ParamTable: ParamTableNone}
 	d.rawYc = readRows(db, "SELECT Addr,BoardPoint,Name,SwitchPoint,SwitchName,TableName FROM ProjectYcPoint ORDER BY Addr")
 	d.rawYx = readRows(db, "SELECT Addr,BoardPoint,Name,SwitchPoint,SwitchName,TableName FROM ProjectYxPoint ORDER BY Addr")
@@ -170,8 +173,19 @@ func readParaPoints(db *sql.DB, query string) []ParaPoint {
 	return out
 }
 
-// SetBases 设置转发点表基值（0 表示使用默认）。
+// SetBases 设置转发点表基值（0 表示使用默认）。同时设置 101/104，兼容旧接口。
 func (d *DB) SetBases(yx, yc, yk, en int) {
+	d.SetBasesFor("104", yx, yc, yk, en)
+	d.setBases101(yx, yc, yk, en)
+}
+
+// SetBasesFor 设置指定协议（"101"/"104"）的转发基址；另一个协议保持不变。
+func (d *DB) SetBasesFor(proto string, yx, yc, yk, en int) {
+	if normProto(proto) == "101" {
+		d.setBases101(yx, yc, yk, en)
+		d.rebuildSwitches()
+		return
+	}
 	if yx > 0 {
 		d.BaseYX = yx
 	}
@@ -186,6 +200,21 @@ func (d *DB) SetBases(yx, yc, yk, en int) {
 	}
 	d.YCBase = d.BaseYC
 	d.rebuildSwitches()
+}
+
+func (d *DB) setBases101(yx, yc, yk, en int) {
+	if yx > 0 {
+		d.BaseYX101 = yx
+	}
+	if yc > 0 {
+		d.BaseYC101 = yc
+	}
+	if yk > 0 {
+		d.BaseYK101 = yk
+	}
+	if en > 0 {
+		d.BaseEN101 = en
+	}
 }
 
 // SetParamTable 选择定值表（"" 无 | "gw" 国网 | "nw" 南网）。

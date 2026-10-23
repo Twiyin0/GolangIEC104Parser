@@ -164,8 +164,7 @@ func TestEnrichWithoutDB(t *testing.T) {
 
 // TestParseStatic101VariableFrame 静态解析必须把 101 可变帧识别为 101，
 // 不能因为“按 104 切也能切出一帧”而误判为 104。
-func TestParseStatic101VariableFrame(t *testing.T) {
-	// 68 L L 68 F3 01 00 | ASDU(TI=13,VSQ=1,COT=20,CA=0,IOA=1,float 1.0) | CS 16
+func TestParseStatic101VariableFrame(t *testing.T) { // 68 L L 68 F3 01 00 | ASDU(TI=13,VSQ=1,COT=20,CA=0,IOA=1,float 1.0) | CS 16
 	// 101 链路地址默认 2 字节，所以 A=01 00。
 	body := []byte{0xF3, 0x01, 0x00, 0x0D, 0x01, 0x14, 0x00, 0x01, 0x00, 0x00, 0x80, 0x3F}
 	cs := 0
@@ -182,6 +181,16 @@ func TestParseStatic101VariableFrame(t *testing.T) {
 	}
 	if len(fs) != 1 || fs[0].Proto != "101" || fs[0].Ti != 13 {
 		t.Fatalf("静态解析应识别为 101/TI13，实际: %+v", fs)
+	}
+}
+
+// 静态 HEX 里 101 帧被截断时，按 L 判定不完整并报错，不能误判为 104。
+func TestParseStaticTruncated101(t *testing.T) {
+	full := build101VarFrame()
+	trunc := full[:len(full)-4]
+	a := NewApp()
+	if _, err := a.ParseStatic(common.HexBytes(trunc)); err == nil {
+		t.Fatal("截断的 101 帧应返回不完整错误")
 	}
 }
 

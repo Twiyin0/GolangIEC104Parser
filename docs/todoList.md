@@ -290,22 +290,34 @@
 - [x] 单测：pointdb `TestPointDBPerProtocol` + main `TestPointTablePerProtocol`（101 转发表/104 全表，反之亦然）
 验收：`go test ./...` + fe-smoke 全绿 ✅
 
-### M19 log 文件监听模式（⏳ 仅设计，待确认后实施）
-- [ ] 需求与连接配置模型（协议/终端/账号/文件路径/动态静态/自定义正则）
-- [ ] 后端：local / ssh / sftp / ftp / scp 文件获取 + 增量监听 + 行解析（time/message）
-- [ ] 前端：Edit→Mode 第三项、Connection log 分区、目录浏览、正则测试
+### M20 101/104 转发基址分离（✅ 已完成 2026-10-23，需求补充）
+- [x] `config.ParseCfg` 增加 `Base101` / `Base104`（`ProtocolBases{yx,yc,yk,en}`），旧字段保留为 104 兼容
+- [x] `Normalize`：旧配置无分协议基址时两套都取旧字段（104）；旧字段全 0 时取默认基址
+- [x] `pointdb.DB` 增加 101 专用基址字段与 `SetBasesFor(proto,…)`，`rebuildSwitches` 分别按 101/104 基址建映射
+- [x] App：`applyBases` 统一下发两套基址；`DbSetTable`/`DbSetTableFor`/`LoadPointDb`/`UpdateConfig` 全部改为分协议
+- [x] 前端 Connection 显示区拆为“转发基址 104”“转发基址 101”两行，默认均为 0/16384/24576/25600
+- [x] 单测：`TestBases101And104Independent`、`TestLegacyBasesInitBoth`、`TestBasesForProtocolIndependent`
+- 验收：`go test ./...` + fe-smoke 全绿 ✅
+
+### M19 log 文件监听模式（✅ 本机 + SSH/SFTP/SCP/FTP 已完成 2026-10-21）
+- [x] 需求与连接配置模型（协议/终端/账号/文件路径/动态静态/自定义正则）
+- [x] 后端：local 增量监听 + SSH `tail -F` + SFTP/FTP 增量 + SCP 全量 + 行解析 + L 完整性检查
+- [x] 前端：Edit→Mode 第三项、Connection log 分区、本机文件选择、连接测试、静态“更新日志”
+- [x] 远端：SSH / SFTP / FTP / SCP 文件获取
+- [x] 远端目录浏览：日志文件右侧“列出”按钮 → 连接目标机列目录 → 选择文件自动填入绝对路径（SSH `ls -la` / SFTP `OPENDIR+READDIR` / FTP `PASV+LIST`）
+- [x] 默认值：远程空字段自动补 `192.168.1.101` / `root` / `/data0/log/ftuMessage.log` / 22（FTP 21）；密码、私钥不默认填充
+- [x] 连接状态：重连成功清除错误并提示成功；主动停止不再误报失败
 - 技术路线（摘要，完整版见本地 `docs/TODO-log-monitor.md`，该目录默认 gitignore，提交时需 `git add -f`）：
-  1. **配置**：`Connection` 增加 `LogConn{Protocol,Host,Port,User,Password,SSHKeyPath,FilePath,WatchMode,FormatRe,Encoding,Proto}`；`Mode` 增加 `log`；
-  2. **后端 Source**：新增 `internal/capture/logfile`，实现与网口/串口相同的 `Source` 接口；`StartCapture` 按 `Mode` 分支；
-  3. **文件获取**：local 直接增量读；ssh 用 `x/crypto/ssh` 执行 `tail -F`；sftp/ftp 轮询 `size/mtime` 增量；scp 全量下载（静态）；统一 `Fetcher{List/Open/Stat/Close}`；
-  4. **监听**：动态=追加解析（记录 offset，检测文件截断/轮转）；静态=“更新”按钮读一次；
-  5. **行解析**：自定义正则命名组 `time/message/dir`（`(?<x>)` 自动转 Go `(?P<x>)`）；为空时用内置规则匹配“时间 + 101/104 HEX”；时间支持 `YYYY/MM/DD-HH:MM:SS`、`YYMMDD_HHMMSS[_mmm]`；报文按首字节 `68`/`10` 自动判 101/104，复用现有解析器；
-  6. **会话/渲染**：session 增加 `SourceKind="log"`，`enrichFrame` 与现有解析/显示配置（含 101/104 独立点表）完全复用；
-  7. **前端**：Edit→Mode 第三项；Connection 模式选 log 时自动进入；无配置时提示并打开 Connection；协议/账号/路径/监听模式/正则编辑 + “测试”按钮 + 目录浏览；静态模式显示“更新”；
-  8. **API**：`LogListDir` / `LogTestConn` / `LogStart` / `LogUpdate` / `LogStop` / `LogStatus`；
-  9. **阶段**：P0 本机文件+默认解析 → P1 SSH/SFTP 远程 → P2 FTP/SCP + 自定义正则增强 + 编码/压力测试；
+  1. **配置**：`Connection` 增加 `LogConn{Protocol,Host,Port,User,Password,SSHKeyPath,FilePath,WatchMode,FormatRe,Encoding,Proto,TailBytes}`；`Mode` 增加 `log`；
+  2. **后端 Source**：新增 `internal/capture/logfile.go`、`log_ssh.go`、`log_sftp.go`、`log_ftp.go` + `internal/logfile`，复用解析管线；`StartCapture` 按 `Mode` 分支；
+  3. **文件获取**：local 直接增量读；SSH 密码/Key + `tail -F`；SFTP 最小 v3 客户端增量；FTP PASV/REST/SIZE 增量；SCP 复用 SSH `cat`；
+  4. **监听**：动态=追加解析（记录 offset，检测文件截断/轮转）；静态=“更新日志”读增量；
+  5. **行解析**：自定义正则命名组 `time/message/dir`（`(?<x>)` 自动转 Go `(?P<x>)`）；为空时用内置规则匹配“时间 + 101/104 HEX”；时间支持 `YYYY/MM/DD-HH:MM:SS` 等；报文按首字节 `68`/`10` 自动判 101/104，复用现有解析器；
+  6. **会话/渲染**：`SourceKind="log"`，`enrichFrame` 与现有解析/显示配置（含 101/104 独立点表）完全复用；
+  7. **前端**：Edit→Mode 第三项；Connection 模式选 log 时自动进入；无配置时提示并打开 Connection；协议/账号/路径/监听模式/正则编辑 + “测试”按钮；静态模式显示“更新日志”；
+  8. **API**：`LogTestConn` / `LogListDir` / `LogUpdate` / `LogStatus` / `LogPickFileDialog`；
+  9. **阶段**：P0 本机文件+默认解析（已完成）→ P1 SSH/SFTP 远程 → P2 FTP/SCP + 自定义正则增强 + 编码/压力测试；
   10. **风险**：远程依赖不可用（连接测试兜底）、日志轮转（offset 检测）、大文件（流式+有界队列）、正则错误（编译提示+行长上限）、凭据落盘（优先 SSH Key）。
-- 状态：**未开始编码**，等确认方案后再进入 P0
 
 ## 4. 风险与对策
 

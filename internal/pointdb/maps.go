@@ -70,9 +70,14 @@ func (d *DB) rebuildShared() {
 	}
 }
 
-// rebuildSwitches 按 101/104 各自当前选定表重建切换映射。
+// rebuildSwitches 按 101/104 各自当前选定表与基址重建切换映射。
 func (d *DB) rebuildSwitches() {
-	d.sw101 = d.buildSwitchFor(d.CurTable101)
+	d.sw101 = switchMaps{
+		yx: buildSwitchMap(d.rawYx, d.CurTable101, d.BaseYX101),
+		yc: buildSwitchMap(d.rawYc, d.CurTable101, d.BaseYC101),
+		yk: buildSwitchMap(d.rawYk, d.CurTable101, d.BaseYK101),
+		en: buildSwitchMap(d.rawEn, d.CurTable101, d.BaseEN101),
+	}
 	d.sw104 = d.buildSwitchFor(d.CurTable104)
 }
 

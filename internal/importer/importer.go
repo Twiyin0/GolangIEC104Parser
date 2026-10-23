@@ -111,6 +111,10 @@ func parseHexRun(line string) []protocol.Frame {
 		return nil
 	}
 	var out []protocol.Frame
+	// 先按 L 判断是否少数据；截断帧不猜测协议（避免 101 截断帧被当成 104）。
+	if chk := protocol.CheckFrame(buf); !chk.Complete {
+		return nil
+	}
 	// 自适应：优先 Detect（含 101 FT1.2 校验），其次比较两种切帧数量。
 	out = protocol.ParseBest(buf)
 	if len(out) == 0 {

@@ -144,6 +144,9 @@ func ParseBest(buf []byte) []Frame {
 	if len(buf) == 0 {
 		return nil
 	}
+	if chk := CheckFrame(buf); !chk.Complete {
+		return nil // 少数据/截断帧不猜测协议，避免误判为 104
+	}
 	switch Detect(buf) {
 	case "101":
 		if fs := ParseStream("101", buf); len(fs) > 0 {

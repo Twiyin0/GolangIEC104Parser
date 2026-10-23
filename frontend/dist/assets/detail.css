@@ -95,7 +95,7 @@ body.light .msgtable tbody tr.hit { background: rgba(230, 180, 80, .40) !importa
 }
 .modal .inline-fields select { padding: 2px 4px; }
 /* 下拉/输入框宽度受限于模态，长文本省略显示（完整内容见 title 悬浮提示） */
-.modal select, .modal input[type="text"] { max-width: 100%; text-overflow: ellipsis; }
+.modal select, .modal input[type="text"], .modal input[type="password"] { max-width: 100%; text-overflow: ellipsis; }
 .modal .inline-fields input.num-sm { width: 76px; padding: 3px 6px; }
 .btn.active { border-color: var(--accent); color: var(--accent); }
 
@@ -126,6 +126,19 @@ body.light .msgtable tbody tr.hit { background: rgba(230, 180, 80, .40) !importa
   border-radius: 5px; padding: 8px; font: 12px Consolas, monospace; resize: vertical; user-select: text;
 }
 .staticactions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.loghint { flex: 0 0 auto; padding: 0 10px 7px; color: var(--fg2); font-size: 11px; line-height: 1.5; }
+/* 静态解析页：文件拖入全窗口提示（pointer-events:none 让 drop 落到页面） */
+.dropmask {
+  position: fixed; inset: 0; z-index: 300; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.55); border: 3px dashed var(--accent);
+}
+.dropmask-box {
+  padding: 22px 34px; border-radius: 10px; background: var(--bg2); color: var(--fg);
+  border: 1px solid var(--line); box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  text-align: center; font-size: 16px; line-height: 1.8;
+}
+.dropmask-box small { color: var(--fg2); font-size: 12px; }
 .staticbody { flex: 1; display: flex; min-height: 0; }
 .staticbody .listpane { flex: 0 0 40%; min-width: 340px; }
 .staticbody .detailpane { flex: 1; }
@@ -136,12 +149,35 @@ body.light .msgtable tbody tr.hit { background: rgba(230, 180, 80, .40) !importa
 .modal h3 { color: var(--accent); margin-bottom: 12px; font-size: 15px; }
 .modal .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .modal .row label { flex: 0 0 110px; color: var(--fg2); }
-.modal input[type=text], .modal input[type=number], .modal select {
+.modal input[type=text], .modal input[type=number], .modal input[type=password], .modal select {
   flex: 1; background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
   border-radius: 4px; padding: 5px 8px; font: inherit;
 }
 .modal .hint { color: var(--fg2); font-size: 11px; margin: 4px 0 4px 120px; }
 .modalfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* log 远程目录浏览 */
+.modal.logbrowser { width: 720px; }
+.logbrowser-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.logbrowser-bar input {
+  flex: 1; background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 5px 8px; font: inherit;
+}
+.logbrowser-list {
+  height: 340px; overflow: auto; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 5px; padding: 4px;
+}
+.logbrowser-tip { padding: 16px; color: var(--fg2); font-size: 12px; text-align: center; }
+.logbrowser-tip.err { color: var(--err); word-break: break-all; }
+.logbrowser-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px;
+  cursor: pointer; font-size: 12px; color: var(--fg);
+}
+.logbrowser-row:hover { background: var(--row-odd); }
+.logbrowser-row.sel { background: var(--sel-bg, rgba(64,158,255,.22)); }
+.logbrowser-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logbrowser-row.dir .nm { color: var(--accent); }
+.logbrowser-row .sz { color: var(--fg2); font-size: 11px; }
 
 /* COMTRADE 波形图 */
 .wavebox { margin: 10px 0 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
