@@ -57,14 +57,40 @@ const AppActions3 = {
       this.refreshAfterDbChange();
     });
   },
-  // 点表变化后联动刷新：实时选中帧重新拉取（重新注入点名）；静态模式自动重新解析
+  // 点表变化后联动刷新：静态/导入/实时已解析报文全部用新点表重新注入点名。
+  // 不再依赖 staticText（大文件拖入时为了性能不保留原文）。
   refreshAfterDbChange() {
-    if (this.selected && this.source === "realtime" && this.selected.id) {
-      this.selectRealtime(this.selected);
-    }
-    if (this.cfg.mode === "static" && (this.staticText || "").trim()) {
-      this.parseStatic();
-    }
+    const api = this.api();
+    const apply = (key, source, method) => {
+      const list = this[key];
+      if (!list || !list.length) return Promise.resolve();
+      return api[method]().then((out) => {
+        if (!out || !out.length) return;
+        const id = this.selected && this.selected.id;
+        this[key] = out;
+        if (this.selected && this.source === source && id) {
+          this.selected = out.find((x) => x.id === id) || this.selected;
+        }
+      }).catch(() => {});
+    };
+    Promise.all([apply("staticFrames", "static", "EnrichStaticFrames"),
+                 apply("importedFrames", "import", "EnrichImportedFrames")])
+      .then(() => {
+        if (!this.frames || !this.frames.length) return;
+        return api.EnrichSessionFrames().then((out) => {
+          if (!out || !out.length) return;
+          const id = this.selected && this.selected.id;
+          const maxId = out.reduce((m, x) => Math.max(m, x.id || 0), this.lastId || 0);
+          // 与实时列表同样限制 DOM 条数；lastId 前移，避免下一次轮询重复拉取旧帧
+          this.frames = out.length > 10000 ? out.slice(-10000) : out;
+          this.lastId = Math.max(this.lastId || 0, maxId);
+          if (this.selected && this.source === "realtime" && id) {
+            const hit = out.find((x) => x.id === id);
+            if (hit) this.selected = hit;
+          }
+        });
+      })
+      .catch(() => {});
   },
 };
 

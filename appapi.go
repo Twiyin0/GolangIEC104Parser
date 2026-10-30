@@ -225,7 +225,15 @@ func (a *App) ParseStatic(text string) ([]protocol.Frame, error) {
 		})
 	}
 	a.enrichFrames(out)
+	a.setStaticFrames(out)
 	return out, nil
+}
+
+// setStaticFrames 保存最近一次静态/log 文本解析结果，供点表变更后重新注入点名。
+func (a *App) setStaticFrames(frames []protocol.Frame) {
+	a.muStatic.Lock()
+	a.staticFrames = append([]protocol.Frame(nil), frames...)
+	a.muStatic.Unlock()
 }
 
 // ── 其他工具 ──────────────────────────────────────────────────────────

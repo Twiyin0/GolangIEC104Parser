@@ -4,6 +4,17 @@
 const AppActions = {
   api() { return window.go && window.go.main && window.go.main.App; },
 
+  // 统一筛选：分类快捷筛选 + Filter 面板（协议/时间/方向/TI/原文等）
+  filterList(list) {
+    let out = list || [];
+    if (this.filterCat) out = out.filter((f) => f.category === this.filterCat);
+    const eng = window.SearchEngine;
+    if (eng && eng.filterActive(this.filter)) {
+      out = out.filter((f) => eng.matchFilter(f, this.filter));
+    }
+    return out;
+  },
+
   showToast(msg, isErr) {
     this.toast = String(msg == null ? "" : msg);
     this.toastErr = !!isErr;

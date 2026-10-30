@@ -234,3 +234,31 @@ func TestPointTablePerProtocol(t *testing.T) {
 		t.Fatalf("DbInfo 协议选择状态错误: 101=%q 104=%q", info.CurTable101, info.CurTable104)
 	}
 }
+
+// TestEnrichStaticFramesAfterDbLoad 静态结果先解析、后加载点表时，重新注入点名。
+func TestEnrichStaticFramesAfterDbLoad(t *testing.T) {
+	a := NewApp()
+	fs, err := a.ParseStatic("68 12 04 00 00 00 0D 01 03 00 01 00 01 00 00 00 00 80 3F 00")
+	if err != nil || len(fs) != 1 {
+		t.Fatalf("解析静态帧失败: %v %d", err, len(fs))
+	}
+	if _, ok := dataOf(t, fs[0])[0]["name"]; ok {
+		t.Fatal("未加载点表时不应有点名")
+	}
+	if _, err := a.LoadPointDb(buildPointDBForTest(t)); err != nil {
+		t.Fatal(err)
+	}
+	out := a.EnrichStaticFrames()
+	if len(out) != 1 {
+		t.Fatalf("静态缓存数量 = %d", len(out))
+	}
+	if got := dataOf(t, out[0])[0]["name"]; got != "10kV进线A相电压" {
+		t.Fatalf("加载点表后静态点名未刷新: %v", got)
+	}
+	// 移除点表后再次刷新，旧点名必须清除
+	a.DbClear()
+	out = a.EnrichStaticFrames()
+	if _, ok := dataOf(t, out[0])[0]["name"]; ok {
+		t.Fatal("移除点表后旧点名应清除")
+	}
+}

@@ -98,6 +98,17 @@ func (s *Session) All() []protocol.Frame {
 	return out
 }
 
+// EnrichAll 在会话锁内遍历所有已缓冲报文（点表变更后重新注入点名）。
+// 回调不得调用会话自身方法，避免锁重入。
+func (s *Session) EnrichAll(fn func([]protocol.Frame)) {
+	if fn == nil {
+		return
+	}
+	s.mu.Lock()
+	fn(s.frames)
+	s.mu.Unlock()
+}
+
 // Stats 统计信息。
 func (s *Session) Stats() map[string]int64 {
 	s.mu.RLock()

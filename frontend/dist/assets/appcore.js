@@ -98,16 +98,15 @@ const AppCore = {
       return this.statusEvents.slice(-4);
     },
     listFrames() {
+      if (this.view === "static") return this.staticFrames;
       return this.view === "import" ? this.importedFrames : this.frames;
     },
     displayFrames() {
-      let list = this.listFrames;
-      if (this.filterCat) list = list.filter((f) => f.category === this.filterCat);
-      const eng = window.SearchEngine;
-      if (eng && eng.filterActive(this.filter)) {
-        list = list.filter((f) => eng.matchFilter(f, this.filter));
-      }
-      return list;
+      return this.filterList(this.listFrames);
+    },
+    // 静态解析页独立表格也走同一套筛选，避免切到 104 后仍显示 101 行
+    staticDisplayFrames() {
+      return this.filterList(this.staticFrames);
     },
     // 列表渲染行：把同一文件的 TI=210 数据传输/确认原始报文折叠成一行（可展开）
     // 搜索/筛选时展开为普通行，避免命中的报文被折叠隐藏。

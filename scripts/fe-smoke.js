@@ -295,5 +295,17 @@ const yxDec = {
 const xh = frameDetailHTML(yxDec);
 assert(xh.indexOf(">17<") >= 0, "遥信地址默认应显示十进制");
 
+// 筛选：协议=104 时 101 帧必须被排除；静态解析表也必须走同一筛选
+if (!SE.matchFilter(frames[0], { proto: "104" }) || SE.matchFilter(frames[4], { proto: "104" })) {
+  failed++; console.error("[FAIL] 协议筛选 104/101 判定错误");
+}
+const htmlSrc = fs.readFileSync(path.join(__dirname, "..", "frontend", "dist", "index.html"), "utf8");
+if (htmlSrc.indexOf("v-for=\"r in staticDisplayFrames\"") < 0) {
+  failed++; console.error("[FAIL] 静态解析表未接入筛选结果 staticDisplayFrames");
+}
+const coreSrc = fs.readFileSync(path.join(__dirname, "..", "frontend", "dist", "assets", "appcore.js"), "utf8");
+if (coreSrc.indexOf("staticDisplayFrames()") < 0 || coreSrc.indexOf('if (this.view === "static") return this.staticFrames') < 0) {
+  failed++; console.error("[FAIL] 静态列表未纳入 listFrames/filterList");
+}
 if (failed) { console.error(`FAILED: ${failed}`); process.exit(1); }
 console.log("PASS: 渲染管线 + 搜索筛选引擎 + 矢量图标 + 文件解析 + 定值渲染 + 地址进制冒烟测试全部通过");

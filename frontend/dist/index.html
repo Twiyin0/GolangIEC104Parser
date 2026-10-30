@@ -222,7 +222,7 @@
                   <th class="col-hex">报文原文(HEX)</th>
                 </tr></thead>
                 <tbody>
-                  <tr v-for="r in staticFrames" :key="r.id" :class="{sel: selected && selected.id===r.id && source==='static', hit: hitIds[r.id]}" @click="selectStatic(r)">
+                  <tr v-for="r in staticDisplayFrames" :key="r.id" :class="{sel: selected && selected.id===r.id && source==='static', hit: hitIds[r.id]}" @click="selectStatic(r)">
                     <td>{{ r.id }}</td><td>{{ r.time }}</td><td>{{ r.proto }}</td>
                     <td>{{ r.category }}</td><td :title="r.tiName + ' | ' + r.summary">{{ r.tiName }} ｜ {{ r.summary }}</td>
                     <td class="hexcell" :title="r.hex">{{ r.hex }}</td>
@@ -231,6 +231,7 @@
               </table>
             </div>
             <div class="empty" v-if="staticFrames.length===0">输入报文后点击"解析"，结果逐条列出</div>
+            <div class="empty" v-else-if="staticDisplayFrames.length===0">当前筛选条件无匹配报文</div>
           </div>
           <div class="splitter"></div>
           <div class="detailpane">

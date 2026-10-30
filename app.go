@@ -43,6 +43,9 @@ type App struct {
 	muImported sync.Mutex
 	imported   []protocol.Frame // 导入回放的报文（带 ID，供筛选后导出）
 
+	muStatic     sync.Mutex
+	staticFrames []protocol.Frame // 最近一次静态/log 文本解析结果（点表变更后重新注入点名）
+
 	muFile             sync.Mutex
 	files              map[string]*fileAcc         // 文件服务组包（TI=210 分段 / TI=125 段落）
 	fileNames          map[int]string              // TI=210 fileId → 文件名（目录/激活/传输帧学习）

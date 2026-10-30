@@ -221,6 +221,8 @@ func (a *App) enrichFrame(f *protocol.Frame) {
 	putName := func(item map[string]any, name string) {
 		if name != "" {
 			item["name"] = name
+		} else {
+			delete(item, "name") // 点表切换/移除后清除旧点名，避免残留
 		}
 	}
 	switch f.Type {
@@ -263,6 +265,9 @@ func (a *App) enrichFrame(f *protocol.Frame) {
 			putName(item, a.ptNameFor("para", n, f.Proto))
 			// 定值补充信息：比例 Rate、参数类型 ParaType、十六进制地址 StrEncodeName
 			// （选定定值表优先；未选定时按转发表/国网/南网兜底补齐，避免整列为"—"）
+			delete(item, "rate")
+			delete(item, "paraType")
+			delete(item, "addrHex")
 			if p, ok := a.ptParamExtra(n); ok {
 				if p.Rate != "" {
 					item["rate"] = p.Rate
@@ -323,4 +328,38 @@ func (a *App) enrichFrames(fs []protocol.Frame) {
 	for i := range fs {
 		a.enrichFrame(&fs[i])
 	}
+}
+
+// EnrichStaticFrames 点表变更后重新为静态/log 文本解析结果注入点名。
+func (a *App) EnrichStaticFrames() []protocol.Frame {
+	a.muStatic.Lock()
+	fs := append([]protocol.Frame(nil), a.staticFrames...)
+	a.muStatic.Unlock()
+	a.enrichFrames(fs)
+	a.muStatic.Lock()
+	a.staticFrames = append([]protocol.Frame(nil), fs...)
+	a.muStatic.Unlock()
+	return fs
+}
+
+// EnrichImportedFrames 点表变更后重新为导入回放报文注入点名。
+func (a *App) EnrichImportedFrames() []protocol.Frame {
+	a.muImported.Lock()
+	fs := append([]protocol.Frame(nil), a.imported...)
+	a.muImported.Unlock()
+	a.enrichFrames(fs)
+	a.muImported.Lock()
+	a.imported = append([]protocol.Frame(nil), fs...)
+	a.muImported.Unlock()
+	return fs
+}
+
+// EnrichSessionFrames 点表变更后重新为实时/日志会话缓冲注入点名，并返回全量快照。
+func (a *App) EnrichSessionFrames() []protocol.Frame {
+	a.sess.EnrichAll(func(frames []protocol.Frame) {
+		for i := range frames {
+			a.enrichFrame(&frames[i])
+		}
+	})
+	return a.sess.All()
 }

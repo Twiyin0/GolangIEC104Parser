@@ -141,6 +141,7 @@ func (a *App) parseLogText(text, fileName string) LogParseResult {
 		}
 	}
 	a.enrichFrames(res.Frames)
+	a.setStaticFrames(res.Frames)
 	return res
 }
 
